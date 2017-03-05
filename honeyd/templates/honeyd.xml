@@ -30,13 +30,23 @@
 <bind ip="192.168.100.101"/>
 <bind ip="192.168.100.102"/>
 <bind ip="192.168.100.103"/>
-</bind_list>
+</bind_list>  
 </device>
 </device_information>
 <routing_information>
 <router ip="192.168.100.100" subnet="192.168.0.0/16" entry="true">
+<connect>192.168.100.101</connect>
 <link>192.168.100.0/24</link>
+</router>
+<router ip="192.168.100.101" subnet="192.168.100.0/16" entry="false">
+<link>192.168.200.0/24</link>
 </router>
 </routing_information>
 <external></external>
 </network_configuration>
+<!-- Command list -->
+<!-- For behaviour check honeyd-master/parse.y-->
+<!-- 
+create, add, bcast, port, srcport, dstport, bind, clone, filtered, closed, default, action, set, personality, random, annotatem no, finscan, fragment, drop, old, new, proxy, uptime, droprate, in , syn, uid, gid, route, entry, net, link, unreach, latency, bandwidth, Kbps, Mbps, ms, loss, subsystem, template, option, to, on , dhcp, shared,restart, network, tunnel, tarpit, spoof, from, delete, tcp, udp, icmp, dynamic, source, list, ip, os, use, if, otherwise, between , time, internal, maxfds, ethernet, debug, include,
+  -->
+  <!-- End of Command list -->

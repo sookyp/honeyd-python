@@ -1,4 +1,5 @@
-<!-- TODO: GRE tunnel, additional attributes, subsystems  -->
+<!-- TODO: tunneling, additional rules and attributes -->
+
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="unqualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="network_configuration">
   <!-- network_configuration -->
@@ -18,6 +19,8 @@
               <xs:element name="name" type="xs:string" maxOccurs="1" minOccurs="1"><!-- END OF name --></xs:element>
               
               <xs:element name="personality" type="xs:string" maxOccurs="1" minOccurs="1"><!-- END OF personality --></xs:element>
+              
+              <xs:element name="ethernet" type="xs:string" maxOccurs="1" minOccurs="0"><!-- END OF ethernet --></xs:element>
               
               <xs:element name="action" maxOccurs="1" minOccurs="1">
               <!-- action -->
@@ -129,11 +132,12 @@
             <xs:complexType>
               <xs:sequence>
             
+              <xs:element type="xs:string" name="connect" maxOccurs="unbounded" minOccurs="0"><!-- END OF connect --></xs:element>
               <xs:element type="xs:string" name="link" maxOccurs="unbounded" minOccurs="0"><!-- END OF link --></xs:element>
               <xs:element type="xs:string" name="unreach" maxOccurs="unbounded" minOccurs="0"><!-- END OF unreach --></xs:element>
 
               </xs:sequence>
-              <!-- TODO: add GRE tunneling -->
+              <!-- TODO: tunneling, additional rules-->
 
               <xs:attribute name="ip" use="required">
                 <xs:simpleType>
@@ -152,6 +156,9 @@
               </xs:attribute>  
               
               <xs:attribute type="xs:boolean" name="entry" use="optional" default="false"/>
+              
+              <xs:attribute type="xs:unsignedShort" name="latency" use="optional"/><!-- in milliseconds -->
+              <xs:attribute type="xs:unsignedShort" name="loss" use="optional"/><!-- in percentage -->
             </xs:complexType>
           <!--  END OF router -->
           </xs:element>

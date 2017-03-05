@@ -32,29 +32,32 @@ class Builder(object):
 
         # build default template
         if default is None:
-            default = Device('default', 'Linux 2.6.31', {'tcp':'closed', 'udp':'closed', 'icmp':'closed'}, list(), list())
+            default = Device('default', 'Linux 2.6.31', '00:08:c7:1b:8c:02', {'tcp':'closed', 'udp':'closed', 'icmp':'closed'}, list(), list())
 
         logger.info('Building virtual network')
+        # TODO: ensure user cannot configure bad network
         # implement a structure defining the network
         network = networkx.Graph()
-        # add devices and externals as nodes
-        for device in devices:
-            network.add_nodes_from(device.bind_list)
-        for external in externals:
-            network.add_node(external.ip)
+        # add routers as nodes
+        for route in routes:
+           network.add_node(route.ip)
+           network.add_nodes_from(route.link_list)
+
+        # for device in devices:
+        #     network.add_nodes_from(device.bind_list)
+        # for external in externals:
+        #     network.add_node(external.ip)
 
         # add connections as edges
         for route in routes:
-            edge_list = [(route.ip, link) for link in route.link_list]
+            # add edges between routers
+            edge_list = [(route.ip, connect, { 'latency':route.latency, 'loss':route.loss } ) for connect in route.connect_list]
             network.add_edges_from(edge_list)
-            # (?) maybe add the reachable subnets as well with default templates (?)
-
-        # all others are considered to be handled by the default template
-        # we can use has_path() to find out if we have to use the default template or not - we have to check the reachable subnets though !
-        # we can use shortest_path() to find the route from entry to target
+            # add edges between link subnets and routers
+            edge_list = [(route.ip, link, { 'latency':route.latency, 'loss':route.loss } ) for link in route.link_list]
+            network.add_edges_from(edge_list)
 
         return (network, default, devices, routes, externals)
-
 
     def parse_configuration(self, config_file, fp_file, mac_file):
         dom_template = etree.parse(config_file)
@@ -78,6 +81,9 @@ class Builder(object):
                 # personality
                 personality_name = entry.xpath('./personality/text()')[0]
                 personality = personality_parser.parse(personality_name)
+
+                #ethernet
+                ethernet = entry.xpath('./ethernet/text()')[0]
 
                 # actions
                 action = dict()
@@ -114,7 +120,7 @@ class Builder(object):
                         bind_list.append(ip)
 
                 # build network devices
-                device_list.append(Device(name, personality, action, service_list, bind_list))
+                device_list.append(Device(name, personality, ethernet, action, service_list, bind_list))
 
         personality_parser.close_files()
         # routing section of the configuration
@@ -133,11 +139,24 @@ class Builder(object):
                 else:
                     entry_point = "false"
 
+                latency = entry.xpath('./@latency')
+                if len(latency):
+                    latency = latency[0]
+                else:
+                    latency = 0
+
+                loss = entry.xpath('./@loss')
+                if len(loss):
+                    loss = loss[0]
+                else:
+                    loss = 0
+
+                connect_list = [child.text for child in entry.iter('connect')]
                 link_list = [child.text for child in entry.iter('link')]
                 unreach_list = [child.text for child in entry.iter('unreach')]
 
                 # build network routes
-                route_list.append(Route(ip, subnet, entry_point, link_list, unreach_list))
+                route_list.append(Route(ip, subnet, entry_point, latency, loss, connect_list, link_list, unreach_list))
 
 
         if external_template:

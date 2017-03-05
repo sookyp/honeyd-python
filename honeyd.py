@@ -12,6 +12,10 @@ import argparse
 import gevent
 import urllib
 import netifaces
+import re
+
+# import ipaddress
+# import netaddr
 
 import honeyd
 from honeyd.core.builder import Builder
@@ -22,7 +26,7 @@ from subprocess import Popen #, call
 logger = logging.getLogger()
 package_directory = os.path.dirname(os.path.abspath(honeyd.__file__))
 
-def honeyd_version():
+def logo():
     print """\
  _                     _ 
 | |_ ___ ___ ___ _ _ _| |
@@ -113,15 +117,14 @@ def parse_arguments():
     parser.add_argument("-u", "--uid", help="Set the user id Honeyd should run as", default=None)
     parser.add_argument("-g", "--gid", help="Set the group id Honeyd should run as", default=None)
     parser.add_argument("-i", "--interface", action="append", help="Listen on interface", default=[])
-    # TODO: remove if farpd call is not needed
-    parser.add_argument("-a", "--address", help="Reply to ARP requests matching address", default=None)
+    parser.add_argument("-a", "--address", action="append", help="Reply to ARP requests matching address", default=[])
     parser.add_argument("-o", "--os-fingerprint", help="Set nmap-style fingerprints file location", default=os.path.join(package_directory, "templates/nmap-os-db"))
     parser.add_argument("-m", "--mac-prefix", help="Set nmap-mac-prefixes file location", default=os.path.join(package_directory, "templates/nmap-mac-prefixes"))
 
     args = parser.parse_args()
 
     if args.version:
-        honeyd_version()
+        logo()
         sys.exit(0)
 
     return args
@@ -176,9 +179,14 @@ def main():
         else:
             logger.info('No valid interface detected for %s, ignoring configuration', interface)
 
-    # TODO: remove if farpd is not needed
-    # TODO: ensure that the user given data is valid CIDR notation
-    arp_address = args.address
+    # filter out non-CIDR notation
+    arp_address = list()
+    for address in args.address:
+        # matches ddd.ddd.ddd.ddd, ddd.ddd.ddd.ddd/dd, ddd.ddd.ddd.ddd-ddd.ddd.ddd.ddd
+        # ((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?
+        is_cidr = re.match('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?', address)
+        if is_cidr is not None:
+            arp_address.append(address)
     # call farpd for all interfaces
     try:
         # call(['arpd', arpd_interfaces])

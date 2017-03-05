@@ -31,8 +31,8 @@ class Parser(object):
             fingerprint_section = self.fingerprint_file.read(end_index - start_index).splitlines()
         except ValueError:
             logger.exception('Personality %s not found.', personality)
-            sys.exit(2)
-        
+            sys.exit(1)
+
         p = Personality()
 
         # File contents defined at https://nmap.org/book/osdetect-methods.html
