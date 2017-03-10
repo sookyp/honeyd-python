@@ -3,7 +3,7 @@
 import impacket
 
 # TODO: create proper packets
-class ICMPHandler(object):
+class ICMPHandler(Protocol):
     type_filter = { impacket.ImpactPacket.ICMP.ICMP_ECHO : impacket.ImpactPacket.ICMP.ICMP_ECHOREPLY,
                     impacket.ImpactPacket.ICMP.ICMP_IREQ : impacket.ImpactPacket.ICMP.ICMP_IREQREPLY,
                     impacket.ImpactPacket.ICMP.ICMP_MASKREQ : impacket.ImpactPacket.ICMP.ICMP_MASKREPLY,
@@ -100,8 +100,8 @@ class ICMPHandler(object):
             data = icmp_pkt.child()
             if len(data):
                 reply_icmp.contains(data)
-            reply_ip.set_ip_shost(pkt.get_ip_dhost())
-            reply_ip.set_ip_dhost(pkt.get_ip_shost())
+            reply_ip.set_ip_src(pkt.get_ip_dst())
+            reply_ip.set_ip_dst(pkt.get_ip_src())
             reply_ip.contains(reply_icmp)
             return reply_ip
 

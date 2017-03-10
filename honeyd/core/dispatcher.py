@@ -144,7 +144,7 @@ class Dispatcher(object):
                 # check reachability according to ttl
                 if len(path) > ip.get_ip_ttl():
                     # TTL < path length
-                    # TODO
+                    # TODO: source ip is not entry but router that caused TTL = 0
                     self.icmp_reply(entry.ip, source_ip, impacket.ImpactPacket.ICMP.ICMP_TIMXCEED, impacket.ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
                     return
 

@@ -3,7 +3,7 @@
 import impacket
 
 # TODO: create proper packets
-class UDPHandler(object):
+class UDPHandler(Protocol):
     ip_id = 0
     udp_id = 0
 
@@ -40,7 +40,7 @@ class UDPHandler(object):
             if personality.fp_u1['DF'] == 'N':
                 reply_ip.set_ip_df(False)
             elif personality.fp_u1['DF'] == 'Y':
-                reply_ip.set_ip_df(False)
+                reply_ip.set_ip_df(True)
             else:
                 # TODO: raise Exception()
                 pass        
@@ -93,18 +93,17 @@ class UDPHandler(object):
                 rid = 0x1042
             reply_ip.set_ip_id(rid)
 
-        # TODO: investigate which checksum is needed
         # check RIPCK
         if personality.fp_u1.has_key('RIPCK'):
             if personality.fp_u1['RIPCK'] == 'I':
-                reply_ip.set_ip_sum(0)
-                reply_icmp.set_icmp_cksum(0)
+                reply_ip.set_ip_sum(0x6765)
+                # reply_icmp.set_icmp_cksum(0)
             elif personality.fp_u1['RIPCK'] == 'Z':
                 reply_ip.set_ip_sum(0)
-                reply_icmp.set_icmp_cksum(0)
+                # reply_icmp.set_icmp_cksum(0)
             elif personality.fp_u1['RIPCK'] == 'G':
                 reply_ip.auto_checksum = 1
-                reply_icmp.auto_checksum = 1
+                # reply_icmp.auto_checksum = 1
             else:
                 # TODO: raise Exception()
                 pass
@@ -133,16 +132,21 @@ class UDPHandler(object):
         if personality.fp_u1.has_key('IPL'):
             try:
                 ipl = int(personality.fp_u1['IPL'], 16)
-                
-                # TODO: investigate IPL
 
-                
+                # TODO: investigate IPL
+                data = reply_udp.get_packet()
+                reply_icmp.contains(ImpactPacket.Data())
+                reply_pkt_len = reply_ip.get_size()
+                data = data[:ipl - reply_pkt_len]
+                data += '\x00'*(ipl - len(data) - reply_pkt_len)
+                reply_icmp.contains(ImpactPacket.Data(data))
+
             except:
                 # TODO: raise Exception()
                 pass
 
-        reply_ip.set_ip_src(pkt.get_ip_dhost())
-        reply_ip.set_ip_dst(pkt.get_ip_shost())
+        reply_ip.set_ip_src(pkt.get_ip_dst())
+        reply_ip.set_ip_dst(pkt.get_ip_src())
         reply_ip.contains(reply_icmp)
 
         # reply_eth = impacket.ImpactPacket.Ethernet()
@@ -160,8 +164,8 @@ class UDPHandler(object):
 
         reply_ip = impacket.ImpactPacket.IP()
         reply_ip.set_ip_p(1)
-        reply_ip.set_ip_src(pkt.get_ip_dhost())
-        reply_ip.set_ip_dst(pkt.get_ip_shost())
+        reply_ip.set_ip_src(pkt.get_ip_dst())
+        reply_ip.set_ip_dst(pkt.get_ip_src())
         reply_ip.contains(reply_icmp)
 
         # reply_eth = impacket.ImpactPacket.Ethernet()

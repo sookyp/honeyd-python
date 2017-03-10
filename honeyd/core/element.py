@@ -22,10 +22,13 @@ class Device(object):
         self.service_list = services
         self.bind_list = binds
         # TODO: investigate possibility of using one handler for every device -> requires more complex structures and administration
+        icmp_handler = ICMPHandler()
+        tcp_handler = TCPHandler()
+        udp_handler = UDPHandler()
         self.protocol_mapping = (
-            ('icmp', 1, ICMPHandler()), # IP_PROTO_ICMP
-            ('tcp', 6, TCPHandler()), # IP_PROTO_TCP
-            ('udp', 17, UDPHandler()) # IP_PROTO_UDP
+            ('icmp', 1, icmp_handler), # IP_PROTO_ICMP
+            ('tcp', 6, tcp_handler), # IP_PROTO_TCP
+            ('udp', 17, udp_handler) # IP_PROTO_UDP
         )
 
     def handle_packet(self, ethernet_packet, path):
@@ -40,6 +43,7 @@ class Device(object):
             port = packet.get_uh_dport()
 
         # TODO: set ethernet address if needed
+        # TODO: catch exceptions and log them
         for protocol_name, protocol_number, protocol_class in protocol_mapping:
             if ip_packet.get_ip_p() == protocol_number:
                 # search for defined services
