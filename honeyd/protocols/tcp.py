@@ -2,91 +2,159 @@
 
 import impacket
 
-class TCPHandler(Protocol):
+class TCPHandler(object):
     # TODO: check states
-    valid_states = ['syn_rcvd', 'ack_rcvd', 'fin_rcvd']
+    valid_states = ['syn_rcvd', 'ack_rcvd', 'fin_rcvd', 'null_rcvd']
 
-    # dictionary = source IP : FSM state
+    # dictionary = (source IP, source PORT) : FSM state
     open_connections = dict()
     closed_conncetions = dict()
 
-    # TODO: id and seq generation
-    def opened(self, pkt, path, personality):
-        # SEQ OPS WIN T1 ? ECN
-        # T2 T3 T4
-        return
+    # TODO: handle WIN and OPS for T1 tests
+    def opened(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
+        tcp_pkt = pkt.child()
+        source_connection = (pkt.get_ip_src(), tcp_pkt.get_th_sport())
+        # T1
+        if source_connection not in open_connections.keys():
+            # new connection
+            if not tcp_pkt.get_SYN():
+                return None
+            if tcp_pkt.get_SYN() and tcp_pkt.get_ECE() and tcp_pkt.get_CWR():
+                if personality.fp_ecn.has_key('R'):
+                    if personality.fp_ecn['R'] == 'N':
+                        return None
+                    reply = build_reply(pkt, path, personality.fp_ecn, cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                    open_connections[source_connection] = 'syn_rcvd'
+                    return reply
+            
+            if personality.fp_ti['T1'].has_key('R'):
+                if personality.fp_ti['T1']['R'] == 'N':
+                    return None
+                reply = build_reply(pkt, path, personality.fp_ti['T1'], cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                open_connections[source_connection] = 'syn_rcvd'
+                # TODO: first incoming packet 1 of 6 for SEQ
+                return reply
 
-    def closed(self, pkt, path, personality):
+        # T2 & T1
+        elif open_connections[source_connection] == 'syn_rcvd':
+            # this packet can be SYN -> T1 or ECN, NULL -> T2,
+            # T2
+            if tcp_pkt.get_th_flags() == 0x00 and pkt.get_ip_df() and tcp_pkt.get_th_win() == 128:
+                if personality.fp_ti['T2'].has_key('R'):
+                    if personality.fp_ti['T2']['R'] == 'N':
+                        return None
+                    reply = build_reply(pkt, path, personality.fp_ti['T2'], cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                    open_connections[source_connection] = 'null_rcvd'
+                    return reply
+            # ECN
+            elif tcp_pkt.get_SYN() and tcp_pkt.get_ECE() and tcp_pkt.get_CWR():
+                if personality.fp_ecn.has_key('R'):
+                    if personality.fp_ecn['R'] == 'N':
+                        return None
+                    reply = build_reply(pkt, path, personality.fp_ecn, cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                    return reply
+            # T1
+            else:
+                if personality.fp_ti['T1'].has_key('R'):
+                    if personality.fp_ti['T1']['R'] == 'N':
+                        return None
+                reply = build_reply(pkt, path, personality.fp_ti['T1'], cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                return reply
+
+        # T3
+        elif open_connections[source_connection] == 'null_rcvd':
+            if personality.fp_ti['T3'].has_key('R'):
+                if personality.fp_ti['T3']['R'] == 'N':
+                    return None
+                reply = build_reply(pkt, path, personality.fp_ti['T3'], cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                open_connections[source_connection] = 'fin_rcvd'
+                return reply
+
+        # T4
+        elif open_connections[source_connection] == 'fin_rcvd':
+            if personality.fp_ti['T4'].has_key('R'):
+                if personality.fp_ti['T4']['R'] == 'N':
+                    return None
+                reply = build_reply(pkt, path, personality.fp_ti['T4'], cb_ip_id, cb_tcp_seq, cb_tcp_ts)
+                del open_connections[source_connection]
+                return reply
+
+    def closed(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # T5, T6, T7
         tcp_pkt = pkt.child()
         if not (tcp_pkt.get_SYN() or tcp_pkt.get_ACK() or tcp_pkt.get_RST() or tcp_pkt.get_FIN()):
             # respond with RST with 0 window value - incoming packet not containing SYN, RST, FIN or ACK
-            reply = send_rst(pkt, path)
+            ip_id = cb_ip_id()
+            tcp_seq = cb_tcp_seq()
+            reply = send_rst(pkt, path, ip_id, tcp_seq)
             return reply
 
         # TODO: handle too many open connections, like syn flood -> socket timeout & dict cleanup
-        # fingerprint fields R, DF, T, TG, W, S, A, F, O, RD, Q
-        source_ip = tcp_pkt.get_ip_src()
-        if source_ip not in closed_conncetions.keys():
+        source_connection = (pkt.get_ip_src(), tcp_pkt.get_th_sport())
+        if source_connection not in closed_conncetions.keys():
             if not tcp_pkt.get_SYN():
                 return None
             if personality.fp_ti['T5'].has_key('R'):
                 if personality.fp_ti['T5']['R'] == 'N':
                     return None
                 # reply to T5 - SYN
-                reply = build_reply(pkt, path, personality.fp_ti['T5'])
-                closed_conncetions[source_ip] = 'syn_rcvd'
+                reply = build_reply(pkt, path, personality.fp_ti['T5'], cb_cip_id, cb_tcp_seq, cb_tcp_ts)
+                closed_conncetions[source_connection] = 'syn_rcvd'
                 return reply
 
-        elif closed_conncetions[source_ip] == 'syn_rcvd':
+        elif closed_conncetions[source_connection] == 'syn_rcvd':
             if not tcp_pkt.get_ACK():
                 return None
             if personality.fp_ti['T6'].has_key('R'):
                 if personality.fp_ti['T6']['R'] == 'N':
                     return None
                 # reply to T6 - ACK
-                reply = build_reply(pkt, path, personality.fp_ti['T6'])
-                closed_conncetions[source_ip] = 'ack_rcvd'
+                reply = build_reply(pkt, path, personality.fp_ti['T6'], cb_cip_id, cb_tcp_seq, cb_tcp_ts)
+                closed_conncetions[source_connection] = 'ack_rcvd'
                 return reply
 
-        elif closed_conncetions[source_ip] == 'ack_rcvd':
+        elif closed_conncetions[source_connection] == 'ack_rcvd':
             if not tcp_pkt.get_FIN():
                 return None
-            # TODO: continuous transmission  -> multiple acks ?
             if personality.fp_ti['T7'].has_key('R'):
                 if personality.fp_ti['T7']['R'] == 'N':
                     return None
                 # reply to T7 - FIN, PSH, URG
-                reply = build_reply(pkt, path, personality.fp_ti['T7'])
+                reply = build_reply(pkt, path, personality.fp_ti['T7'], cb_cip_id, cb_tcp_seq, cb_tcp_ts)
                 # closed_conncetions[source_ip] = 'fin_rcvd'
-                del closed_conncetions[source_ip]
+                del closed_conncetions[source_connection]
                 return reply
 
         # If we arrive at this location we deal with invalids -> send reset packet
         else:
-            reply = send_rst(pkt, path)
+            ip_id = cb_ip_id()
+            tcp_seq = cb_tcp_seq()
+            reply = send_rst(pkt, path, ip_id, tcp_seq)
             return reply
 
 
-    def filtered(self, pkt, path, personality):
+    def filtered(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # respond with ICMP error type 3 code 13
         reply_icmp = impacket.ImpactPacket.ICMP()
         reply_icmp.set_icmp_type(ICMP_UNREACH)
         reply_icmp.set_icmp_code(ICMP_UNREACH_FILTERPROHIB)
+        reply_icmp.set_icmp_id(cb_icmp_id())
         reply_icmp.auto_checksum = 1
 
         reply_ip = impacket.ImpactPacket.IP()
         reply_ip.set_ip_p(1)
         reply_ip.set_ip_src(pkt.get_ip_dst())
         reply_ip.set_ip_dst(pkt.get_ip_src())
-        reply_ip.contains(reply_icmp)
+        reply_ip.set_ip_id(cb_ip_id())
+        reply_ip.contains(reply_icmp)      
 
         # reply_eth = impacket.ImpactPacket.Ethernet()
         # reply_eth.set_ether_type(0x800)
         # reply_eth.contains(reply_ip)
         return reply_ip
 
-    def build_reply(pkt, path, personality):
+    def build_reply(pkt, path, personality, cb_ip_id, cb_tcp_seq, cb_tcp_ts):
+        # fingerprint fields R, DF, T, TG, W, S, A, F, O, RD, Q & CC
         reply_ip = impacket.ImpactPacket.IP()
         reply_ip.set_ip_src(pkt.get_ip_dst())
         reply_ip.set_ip_dst(pkt.get_ip_src())
@@ -100,11 +168,10 @@ class TCPHandler(Protocol):
         if personality.has_key('DF'):
             if personality['DF'] == 'N':
                 reply_ip.set_ip_df(False)
-            elif personality.fp_u1['DF'] == 'Y':
+            elif personality['DF'] == 'Y':
                 reply_ip.set_ip_df(True)
             else:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported Ti:DF=%s', personality['DF'])
 
         # check T
         ttl = 0x7f
@@ -114,16 +181,14 @@ class TCPHandler(Protocol):
                 # using minimum ttl
                 ttl = int(ttl[0], 16)
             except:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported Ti:T=%s', personality['T'])
 
         # check TG
         if personality.has_key('TG'):
             try:
                 ttl = int(personality['TG'], 16)
             except:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported Ti:TG=%s', personality['TG'])
         # TODO: update TTL according to path length
         delta_ttl = len(path)
         reply_ip.set_ip_ttl(ttl)
@@ -134,9 +199,23 @@ class TCPHandler(Protocol):
             try:
                 win = int(personality['W'], 16)
             except:
-                # raise Exception()
-                pass
+                raise Exception('Unsupported Ti:W=%s', personality['W'])
         reply_tcp.set_th_win(win)
+
+        # check CC
+        if personality.has_key('CC'):
+            if personality['CC'] == 'N':
+                reply_tcp.reset_ECE()
+                reply_tcp.reset_CWR()
+            elif personality['CC'] == 'Y':
+                reply_tcp.set_ECE()
+                reply_tcp.reset_CWR()
+            elif personality['CC'] == 'S':
+                reply_tcp.set_ECE()
+                reply_tcp.set_CWR()
+            elif personality['CC'] == 'O':
+                reply_tcp.reset_ECE()
+                reply_tcp.set_CWR()
 
         # check S
         if personality.has_key('S'):
@@ -147,12 +226,10 @@ class TCPHandler(Protocol):
             elif personality['S'] == 'A+':
                 reply_tcp.set_th_seq(tcp_pkt.get_th_ack() + 1)
             elif personality['S'] == 'O':
-                # TODO: sequence generation
-                seq = get_tcp_seq()
+                seq = cb_tcp_seq()
                 reply_tcp.set_th_seq(seq)
             else:
-                # raise Exception()
-                pass
+                raise Exception('Unsupported Ti:S=%s', personality['S'])
 
         # check A
         if personality.has_key('A'):
@@ -162,13 +239,7 @@ class TCPHandler(Protocol):
                 reply_tcp.set_th_ack(tcp_pkt.get_th_seq())
             elif personality['A'] == 'S+':
                 reply_tcp.set_th_ack(tcp_pkt.get_th_seq() + 1)
-            elif personality['A'] == 'O':
-                # TODO: ack generation
-                ack = get_tcp_ack()
-                reply_tcp.set_th_ack(ack)
-            else:
-                # raise Exception()
-                pass
+            # TODO: handle Other values
 
         # check O
         if personality.has_key('O'):
@@ -186,8 +257,8 @@ class TCPHandler(Protocol):
                 if opt == 'T':
                     opt = impacket.ImpactPacket.TCPOption(impacket.ImpactPacket.TCPOption.TCPOPT_TIMESTAMP)
                     if options[i] == '1':
-                        # TODO: generate ts
-                        opt.set_ts(get_tcp_ts())
+                        ts = cb_tcp_ts()
+                        opt.set_ts(ts)
                     if options[i+1] == '1':
                         opt.set_ts_echo(0xffffffffL)
                     reply_tcp.add_option(opt)
@@ -233,19 +304,19 @@ class TCPHandler(Protocol):
                     data = ImpactPacket.Data(data)
                     reply_tcp.contains(data)
             except:
-                # raise Exception()
-                pass
+                raise Exception('Unsupported Ti:RD=%s', personality['RD'])
 
         reply_ip.set_ip_src(pkt.get_ip_dst())
         reply_ip.set_ip_dst(pkt.get_ip_src())
-        reply_ip.contains(reply_icmp)
+        reply_ip.set_ip_id(cb_ip_id())
+        reply_ip.contains(reply_tcp)
 
         # reply_eth = impacket.ImpactPacket.Ethernet()
         # reply_eth.set_ether_type(0x800)
         # reply_eth.contains(reply_ip)
 
-    def send_rst(pkt, path):
-        # TODO: set seq and id if needed & set ttl
+    def send_rst(pkt, path, ip_id, tcp_seq):
+        # TODO: set ttl
         tcp_pkt = pkt.child()
 
         reply_tcp = impacket.ImpactPacket.TCP()
@@ -254,13 +325,14 @@ class TCPHandler(Protocol):
         reply_tcp.set_RST()
         reply_tcp.set_ACK()
         reply_tcp.set_th_ack(tcp_pkt.get_th_seq() + 1)
-        reply_tcp.set_th_seq(get_tcp_seq())
+        reply_tcp.set_th_seq(tcp_seq)
         reply_tcp.set_th_win(0)
 
         reply_ip = impacket.ImpactPacket.IP()
         reply_ip.set_ip_p(1)
         reply_ip.set_ip_src(pkt.get_ip_dst())
         reply_ip.set_ip_dst(pkt.get_ip_src())
+        reply_ip.set_ip_id(ip_id)
         reply_ip.contains(reply_tcp)
 
         return reply_ip
@@ -275,15 +347,3 @@ class TCPHandler(Protocol):
                 break
             idx += 1
         return v, idx
-
-    # TODO
-    def get_tcp_seq():
-        pass
-
-    # TODO
-    def get_tcp_ack():
-        pass
-
-    # TODO
-    def get_tcp_ts():
-        pass

@@ -90,7 +90,6 @@ class Dispatcher(object):
         # unreachables in network
         for subnet in self.unreach_list:
             if ipaddress.ip_address(source_ip) in ipaddress.ip_network(subnet):
-                # TODO: change icmp type & code if needed, currently 3 & 13
                 self.icmp_reply(self.entry_points[0].ip, source_ip, impacket.ImpactPacket.ICMP.ICMP_UNREACH, impacket.ImpactPacket.ICMP.ICMP_UNREACH_FILTERPROHIB)
                 return
 
@@ -139,20 +138,31 @@ class Dispatcher(object):
                 attributes = {'latency':networkx.get_edge_attributes(subgraph, 'latency'), 'loss':networkx.get_edge_attributes(subgraph, 'loss')}
                 # filter out everything where we do not care about the protocols and behavior
 
-                # TODO: loss and drop calculation
+                # loss and latency calculation
+                drop_threshold = 1.0
+                for loss in attributes['loss']:
+                    if loss > 100:
+                        loss = 100
+                    elif loss < 0:
+                        loss = 0
+                    drop_threshold *= float(1.0 - loss/100.0) # probability of no error in path
+                drop = random.uniform(0.0, 1.0) # TODO: test corner cases
+                if drop > drop_threshold:
+                    return
+                
+                latency = sum(attributes['latency'])
 
                 # check reachability according to ttl
                 if len(path) > ip.get_ip_ttl():
                     # TTL < path length
-                    # TODO: source ip is not entry but router that caused TTL = 0
-                    self.icmp_reply(entry.ip, source_ip, impacket.ImpactPacket.ICMP.ICMP_TIMXCEED, impacket.ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
+                    self.icmp_reply(target_router.ip, source_ip, impacket.ImpactPacket.ICMP.ICMP_TIMXCEED, impacket.ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
                     return
 
                 reply = handler.handle_packet(eth, path)
                 break
             # else-branch: router with no defined entry to it - ignore
 
-        # handle reply
+        # handle reply - wait according to latency
         if reply is not None:
             s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_IP)
             s.setsockopt(socket.IPPROTO_IP, socket.HDRINCL, 1)

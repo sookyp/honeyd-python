@@ -3,20 +3,14 @@
 import impacket
 
 # TODO: create proper packets
-class UDPHandler(Protocol):
-    ip_id = 0
-    udp_id = 0
-
-    ip_seq = 0
-    udp_seq = 0
-
-    def opened(self, pkt, path, personality):
+class UDPHandler(object):
+    def opened(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         reply_udp = impacket.ImpactPacket.UDP()
         reply = impacket.ImpactPacket.IP()
         # TODO: send to application
         return reply
 
-    def closed(self, pkt, path, personality):
+    def closed(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # check R
         if personality.fp_u1.has_key('R'):
             if personality.fp_u1['R'] == 'N':
@@ -26,12 +20,14 @@ class UDPHandler(Protocol):
         reply_icmp = impacket.ImpactPacket.ICMP()
         reply_icmp.set_icmp_type(ICMP_UNREACH)
         reply_icmp.set_icmp_code(ICMP_UNREACH_PORT)
+        reply_icmp.set_icmp_id(cb_icmp_id())
         reply_icmp.auto_checksum = 1
         
         reply_udp = impacket.ImpactPacket.UDP()
         reply_udp.auto_checksum = 1
 
         reply_ip = impacket.ImpactPacket.IP()
+        reply_ip.set_ip_id(cb_ip_id())
         reply_ip.set_ip_p(1)
         reply_ip.auto_checksum = 1
 
@@ -42,8 +38,7 @@ class UDPHandler(Protocol):
             elif personality.fp_u1['DF'] == 'Y':
                 reply_ip.set_ip_df(True)
             else:
-                # TODO: raise Exception()
-                pass        
+                raise Exception('Unsupported U1:DF=%s', personality.fp_u1['DF'])
 
         # check T
         ttl = 0x7f
@@ -53,16 +48,14 @@ class UDPHandler(Protocol):
                 # using minimum ttl
                 ttl = int(ttl[0], 16)
             except:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported U1:T=%s', personality.fp_u1['T'])
 
         # check TG
         if personality.fp_u1.has_key('TG'):
             try:
                 ttl = int(personality.fp_u1['TG'], 16)
             except:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported U1:TG=%s', personality.fp_u1['TG'])
         # TODO: update TTL according to path length
         delta_ttl = len(path)
         reply_ip.set_ip_ttl(ttl)
@@ -73,25 +66,28 @@ class UDPHandler(Protocol):
             try:
                 un = int(personality.fp_u1['UN'], 16)
             except:
-                # raise Exception()
-                pass
+                raise Exception('Unsupported U1:UN=%s', personality.fp_u1['UN'])
             reply_icmp.set_icmp_void(un)
 
         # check RIPL
+        ripl = 0x148
         if personality.fp_u1.has_key('RIPL'):
-            try:
-                ripl = int(personality.fp_u1['RIPL'], 16)
-            except:
-                ripl = 0x148
-            reply_ip.set_ip_len(ripl)
+            if personality.fp_u1['RIPL'] != 'G':
+                try:
+                    ripl = int(personality.fp_u1['RIPL'], 16)
+                except:
+                    raise Exception('Unsupported U1:RIPL=%s', personality.fp_u1['RIPL'])
+        reply_ip.set_ip_len(ripl)
 
         # check RID
+        rid = 0x1042
         if personality.fp_u1.has_key('RID'):
-            try:
-                rid = int(personality.fp_u1['RID'], 16)
-            except:
-                rid = 0x1042
-            reply_ip.set_ip_id(rid)
+            if personality.fp_u1['RID'] != 'G':
+                try:
+                    rid = int(personality.fp_u1['RID'], 16)
+                except:
+                    raise Exception('Unsupported U1:RID=%s', personality.fp_u1['RID'])
+        reply_ip.set_ip_id(rid)
 
         # check RIPCK
         if personality.fp_u1.has_key('RIPCK'):
@@ -105,8 +101,7 @@ class UDPHandler(Protocol):
                 reply_ip.auto_checksum = 1
                 # reply_icmp.auto_checksum = 1
             else:
-                # TODO: raise Exception()
-                pass
+               raise Exception('Unsupported U1:RIPCK=%s', personality.fp_u1['RIPCK'])
 
         # check RUCK
         if personality.fp_u1.has_key('RUCK'):
@@ -125,8 +120,7 @@ class UDPHandler(Protocol):
                 # truncated to zero OR copy original datagram => udp_data.get_size() * 'C'(0x43)
                 pass
             else:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported U1:RUD=%s', personality.fp_u1['RUD'])
 
         # check IPL
         if personality.fp_u1.has_key('IPL'):
@@ -142,8 +136,7 @@ class UDPHandler(Protocol):
                 reply_icmp.contains(ImpactPacket.Data(data))
 
             except:
-                # TODO: raise Exception()
-                pass
+                raise Exception('Unsupported U1:IPL=%s', personality.fp_u1['IPL'])
 
         reply_ip.set_ip_src(pkt.get_ip_dst())
         reply_ip.set_ip_dst(pkt.get_ip_src())
@@ -155,17 +148,19 @@ class UDPHandler(Protocol):
 
         return reply_ip
 
-    def filtered(self, pkt, path, personality):
+    def filtered(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # respond with ICMP error type 3 code 13
         reply_icmp = impacket.ImpactPacket.ICMP()
         reply_icmp.set_icmp_type(ICMP_UNREACH)
         reply_icmp.set_icmp_code(ICMP_UNREACH_FILTERPROHIB)
+        reply_icmp.set_icmp_id(cb_icmp_id())
         reply_icmp.auto_checksum = 1
 
         reply_ip = impacket.ImpactPacket.IP()
         reply_ip.set_ip_p(1)
         reply_ip.set_ip_src(pkt.get_ip_dst())
         reply_ip.set_ip_dst(pkt.get_ip_src())
+        reply_ip.set_ip_id(cb_ip_id())
         reply_ip.contains(reply_icmp)
 
         # reply_eth = impacket.ImpactPacket.Ethernet()

@@ -3,19 +3,14 @@
 import impacket
 
 # TODO: create proper packets
-class ICMPHandler(Protocol):
+class ICMPHandler(object):
     type_filter = { impacket.ImpactPacket.ICMP.ICMP_ECHO : impacket.ImpactPacket.ICMP.ICMP_ECHOREPLY,
                     impacket.ImpactPacket.ICMP.ICMP_IREQ : impacket.ImpactPacket.ICMP.ICMP_IREQREPLY,
                     impacket.ImpactPacket.ICMP.ICMP_MASKREQ : impacket.ImpactPacket.ICMP.ICMP_MASKREPLY,
                     impacket.ImpactPacket.ICMP.ICMP_TSTAMP : impacket.ImpactPacket.ICMP.ICMP_TSTAMPREPLY }
-    # TODO: seq and id generation
-    ip_id = 0
-    icmp_id = 0
 
-    ip_seq = 0
-    icmp_seq = 0
-
-    def opened(self, pkt, path, personality):
+    # TODO: update sequence and id numbers
+    def opened(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # create reply packets
         reply_icmp = impacket.ImpactPacket.ICMP()
         reply_ip = impacket.ImpactPacket.IP()
@@ -27,6 +22,7 @@ class ICMPHandler(Protocol):
 
         # TODO: set other fields needed
         reply_icmp.set_icmp_type(type_filter[icmp_pkt.get_icmp_type()])
+        reply_icmp.set_icmp_id(cb_icmp_id())
         reply_icmp.set_icmp_seq(icmp_pkt.get_icmp_seq())
         reply_icmp.set_icmp_tos(icmp_pkt.get_icmp_tos())
 
@@ -50,15 +46,14 @@ class ICMPHandler(Protocol):
             if personality.fp_ie.has_key('DFI'):
                 if personality.fp_ie['DFI'] == 'N':
                     reply_ip.set_ip_df(False)
-                elif personality.fp_ie['DFI'] == 'T':
+                elif personality.fp_ie['DFI'] == 'Y':
                     reply_ip.set_ip_df(True)
                 elif personality.fp_ie['DFI'] == 'S':
                     reply_ip.set_ip_df(pkt.get_ip_df())
                 elif personality.fp_ie['DFI'] == 'O':
                     reply_ip.set_ip_df(not pkt.get_ip_df())
                 else:
-                    # TODO: raise Exception()
-                    pass
+                    raise Exception('Unsupported IE:DFI=%s', personality.fp_ie['DFI'])
 
             # check CD
             if personality.fp_ie.has_key('CD'):
@@ -72,8 +67,7 @@ class ICMPHandler(Protocol):
                     try:
                         reply_icmp.set_icmp_code(int(personality.fp_ie['CD'], 16))
                     except:
-                        # TODO: raise Exception()
-                        pass
+                        raise Exception('Unsupported IE:CD=%s', personality.fp_ie['CD'])
             # check T
             ttl = 0x7f
             if personality.fp_ie.has_key('T'):
@@ -82,16 +76,14 @@ class ICMPHandler(Protocol):
                     # using minimum ttl
                     ttl = int(ttl[0], 16)
                 except:
-                    # TODO: raise Exception()
-                    pass
+                    raise Exception('Unsupported IE:T=%s', personality.fp_ie['T'])
 
             # check TG
             if personality.fp_ie.has_key('TG'):
                 try:
                     ttl = int(personality.fp_ie['TG'], 16)
                 except:
-                    # TODO: raise Exception()
-                    pass
+                    raise Exception('Unsupported IE:TG=%s', personality.fp_ie['TG'])
             # TODO: update TTL according to path length
             delta_ttl = len(path)
             reply_ip.set_ip_ttl(ttl)
@@ -102,6 +94,7 @@ class ICMPHandler(Protocol):
                 reply_icmp.contains(data)
             reply_ip.set_ip_src(pkt.get_ip_dst())
             reply_ip.set_ip_dst(pkt.get_ip_src())
+            reply_ip.set_ip_id(cb_ip_id())
             reply_ip.contains(reply_icmp)
             return reply_ip
 
@@ -120,14 +113,15 @@ class ICMPHandler(Protocol):
         # TODO: encapsulate into ethernet frame if needed
         return reply_ip
 
-    def closed(self, pkt, path, personality):
+    def closed(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # ICMP closed is ignored
         return None
 
-    def filtered(self, pkt, path, personality):
+    def filtered(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # ICMP filtered is ignored
         return None
 
+    # We won't need these checks
     def is_nmap_icmp_echo_probe_1(pkt):
         # The first one has the IP DF bit set, a type-of-service (TOS)  byte 
         # value of zero, a code of nine (even though it should be zero), 
