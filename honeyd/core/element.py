@@ -1,14 +1,26 @@
 #!/usr/bin/env python
 
-import impacket
+import logging
+
+import ipaddress
+import subprocess
+import re
+
+from impacket import ImpactPacket
 
 import honeyd
-from honeyd.protocols import TCPHandler, UDPHandler, ICMPHandler
+from honeyd.protocols.tcp import TCPHandler
+from honeyd.protocols.udp import UDPHandler
+from honeyd.protocols.icmp import ICMPHandler
+
+logger = logging.getLogger(__name__)
+
+import sys
 
 """
   Contains elements which build up our network topology
 """
-
+# TODO: investigate IP spoofing over raw packets
 class Device(object):
     """
       Defines devices on the network, like machines, routers, switches, etc.
@@ -18,6 +30,17 @@ class Device(object):
         self.name = name
         self.personality = personality
         self.ethernet = ethernet
+
+        # TODO: proper ethernet conversion that impacket can handle
+        try:
+            #self.ethernet = self.ethernet.replace(':','').decode('hex')
+            self.ethernet = self.ethernet.replace(':','').decode('hex')
+            # self.ethernet = int(self.ethernet, 16)
+
+        except:
+            logger.exception('Exception: MAC conversion for device %s failed.', self.name)
+            sys.exit(2)
+
         self.action_dictionary = actions
         self.service_list = services
         self.bind_list = binds
@@ -47,56 +70,109 @@ class Device(object):
         self.ip_id_generator()
         self.tcp_isn_generator()
         self.tcp_ts_generator()
+        self.decoder = ImpactDecoder.IPDecoder()
 
-    def handle_packet(self, ethernet_packet, path):
+    def handle_packet(self, ethernet_packet, path, target):
         """
         Forwards packet to the appropriate protocol handler based on configuration
         """
+        reply = None
         ip_packet = ethernet_packet.child()
-        ip_packet_protocol = ip_packet.get_ip_p()
-        packet = ip_packet.child()
-        port = None
-        # TODO: use getattr() to tidy this up
-        if ip_packet_protocol == impacket.ImpactPacket.TCP.protocol:
-            port = packet.get_th_dport()
-        elif ip_packet_protocol == impacket.ImpactPacket.UDP.protocol:
-            port = packet.get_uh_dport()
+        ip_protocol, port_number = target
+
+        eth_dst = ethernet_packet.get_ether_shost()
 
         # TODO: set ethernet address if needed
-        for protocol_name, protocol_number, protocol_class in protocol_mapping:
-            if ip_packet_protocol == protocol_number:
+        for protocol_name, protocol_number, protocol_class in self.protocol_mapping:
+            if ip_protocol == protocol_number:
                 # search for defined services
                 for service in self.service_list:
-                    if protocol_name == service[0] and port == service[1]:
+                    if protocol_name == service[0] and port_number == service[1]:
                         try:
                             if service[2] == 'filtered':
-                                reply = protocol_class.filtered(ip_packet, path, self.personality, cb_ip_id=get_ip_id, cb_cip_id=get_cip_id, cb_icmp_id=get_icmp_id, cb_tcp_seq=get_tcp_seq, cb_tcp_ts=get_tcp_ts)
+                                reply = protocol_class.filtered(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
                             elif service[2] == 'closed':
-                                reply = protocol_class.closed(ip_packet, path, self.personality, cb_ip_id=get_ip_id, cb_cip_id=get_cip_id, cb_icmp_id=get_icmp_id, cb_tcp_seq=get_tcp_seq, cb_tcp_ts=get_tcp_ts)
+                                reply = protocol_class.closed(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
                             elif service[2] == 'open':
-                                reply = protocol_class.opened(ip_packet, path, self.personality, cb_ip_id=get_ip_id, cb_cip_id=get_cip_id, cb_icmp_id=get_icmp_id, cb_tcp_seq=get_tcp_seq, cb_tcp_ts=get_tcp_ts)
-                            else:
-                                # TODO: execute script
+                                reply = protocol_class.opened(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
+                            elif service[2] == 'block':
+                                reply = protocol_class.blocked(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
+                            elif service[2].startswith('proxy '):
+                                # TODO: handle proxy
+                                proxy_data = value[len('proxy '):].split(':')
+                                proxy_ip = ipaddress.ip_address(unicode(proxy_data[0]))
+                                proxy_port = int(proxy_data[1], 10)
                                 pass
+                            else:
+                                # script is excpected to provide proper IP packet as a reply as series of bytes through stdout
+                                script = gevent.subprocess.Popen(service[2], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None)
+                                try:
+                                    output, error = script.communicate(input=ethernet_packet, timeout=10)
+                                    reply = self.decoder.decode(output)
+                                    inner_packet = reply.child()
+                                    if reply.get_ip_p() == ImpactPacket.TCP.protocol:
+                                        inner_packet.set_th_sport(port_number)
+                                        packet = ip_packet.child()
+                                        inner_packet.set_th_dport(packet.get_th_sport())
+                                        reply.contains(inner_packet)
+                                    elif ip_packet_protocol == ImpactPacket.UDP.protocol:
+                                        inner_packet.set_uh_sport(port_number)
+                                        packet = ip_packet.child()
+                                        inner_packet.set_uh_dport(packet.get_uh_sport())
+                                        reply.contains(inner_packet)
+                                    reply.set_ip_id(self.get_ip_id()) # TODO ?
+                                    reply.set_ip_src(ip_packet.get_ip_dst())
+                                    reply.set_ip_dst(ip_packet.get_ip_src())
+                                    reply.auto_checksum = 1
+                                except gevent.subprocess.TimeoutExpired:
+                                    logger.exception('Exception: script timeout expired.')
+                                    script.kill()
+                                except gevent.subprocess.SubprocessError:
+                                    logger.exception('Exception: script subprocess error.')
+                                    script.kill()
                         except Exception as ex:
                             # log exception
-                            logger.exception('Exception: Device %s with issue: %s', self.name, exc_info=ex)
+                            logger.exception('Exception: Device %s with issue: %s', self.name, ex)
                         # TODO: encapsulate ethernet frame, set mac address
-                        return reply
+                        if reply is not None:
+                            reply_eth = ImpactPacket.Ethernet()
+                            reply_eth.set_ether_type(0x800)
+                            # reply_eth.set_ether_shost(self.ethernet)
+                            reply_eth.set_ether_dhost(eth_dst)
+                            
+                            reply_eth.contains(reply)
+                            return reply_eth
+                        return None
 
                 # check default actions
                 try:
                     if self.action_dictionary[protocol_name] == 'filtered':
-                        reply = protocol_class.filtered(ip_packet, path, self.personality, cb_ip_id=get_ip_id, cb_cip_id=get_cip_id, cb_icmp_id=get_icmp_id, cb_tcp_seq=get_tcp_seq, cb_tcp_ts=get_tcp_ts)
+                        reply = protocol_class.filtered(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
                     elif self.action_dictionary[protocol_name] == 'closed':
-                        reply = protocol_class.closed(ip_packet, path, self.personality, cb_ip_id=get_ip_id, cb_cip_id=get_cip_id, cb_icmp_id=get_icmp_id, cb_tcp_seq=get_tcp_seq, cb_tcp_ts=get_tcp_ts)
+                        reply = protocol_class.closed(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
                     elif self.action_dictionary[protocol_name] == 'open':
-                        reply = protocol_class.opened(ip_packet, path, self.personality, cb_ip_id=get_ip_id, cb_cip_id=get_cip_id, cb_icmp_id=get_icmp_id, cb_tcp_seq=get_tcp_seq, cb_tcp_ts=get_tcp_ts)
-                except:
+                        reply = protocol_class.opened(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
+                    elif self.action_dictionary[protocol_name] == 'block':
+                                reply = protocol_class.blocked(ip_packet, path, self.personality, cb_ip_id=self.get_ip_id, cb_cip_id=self.get_cip_id, cb_icmp_id=self.get_icmp_id, cb_tcp_seq=self.get_tcp_seq, cb_tcp_ts=self.get_tcp_ts)
+                    elif self.action_dictionary[protocol_name].startswith('proxy '):
+                        # TODO: handle proxy
+                        proxy_data = value[len('proxy '):].split(':')
+                        proxy_ip = ipaddress.ip_address(unicode(proxy_data[0]))
+                        proxy_port = int(proxy_data[1], 10)
+                        pass
+                except Exception as ex:
                     # log exception
-                    logger.exception('Exception: Device %s with issue: %s', self.name, exc_info=ex)
+                    logger.exception('Exception: Device %s with issue: %s', self.name, ex)
                 # TODO: encapsulate ethernet frame, set mac address
-                return reply
+                if reply is not None:
+                    reply_eth = ImpactPacket.Ethernet()
+                    reply_eth.set_ether_type(0x800)
+                    # reply_eth.set_ether_shost(self.ethernet)
+                    reply_eth.set_ether_dhost(eth_dst)
+
+                    reply_eth.contains(reply)
+                    return reply_eth
+                return None
 
     def ip_id_generator(self):
         """
@@ -139,7 +215,7 @@ class Device(object):
                     logger.exception('Exception: Device %s issue with IP ID generation. Possible invalid values in configuration. Check fingerprint section SEQ:CI', self.name)
 
         # SS
-        if self.personality.fp_seq.has_key['SS']:
+        if self.personality.fp_seq.has_key('SS'):
             if self.personality.fp_seq['SS'] == 'S':
                 self.metadata['icmp_id'] = None
                 self.metadata['icmp_id_delta'] = None
@@ -165,14 +241,14 @@ class Device(object):
         for i in range(5):
             # generate IP ID
             self.metadata['ip_id'] += self.metadata['ip_id_delta']
-            self.metadata['ip_id'] %= 0x10000L
+            self.metadata['ip_id'] %= 0x10000
             self.metadata['cip_id'] += self.metadata['cip_id_delta']
-            self.metadata['cip_id'] %= 0x10000L
+            self.metadata['cip_id'] %= 0x10000
 
             # generate ICMP ID
             if self.metadata['icmp_id'] is not None:
                 self.metadata['icmp_id'] += self.metadata['icmp_id_delta']
-                self.metadata['icmp_id'] %= 0x10000L
+                self.metadata['icmp_id'] %= 0x10000
 
     def tcp_isn_generator(self):
         """
@@ -200,7 +276,7 @@ class Device(object):
         if self.personality.fp_seq.has_key('SP'):
             sp = self.personality.fp_seq['SP'].split('-')
             try:
-                sp = int(sp, 16)
+                sp = int(sp[0], 16)
             except:
                 logger.exception('Exception: Device %s issue with TCP ISN generation, using value 0. Possible invalid values in configuration. Check fingerprint section SEQ:SP', self.name)
                 sp = 0
@@ -215,7 +291,7 @@ class Device(object):
         for i in range(5):
             self.metadata['tcp_isn_dev'] *= -1
             self.metadata['tcp_isn'] += self.metadata['tcp_isn_delta']
-            self.metadata['tcp_isn'] %= 0x100000000L
+            self.metadata['tcp_isn'] %= 0x100000000
 
     def tcp_ts_generator(self):
         """
@@ -235,52 +311,52 @@ class Device(object):
 
         for i in range(5):
             self.metadata['tcp_ts'] += self.metadata['tcp_ts_delta']
-            self.metadata['tcp_ts'] %= 0x100000000L
+            self.metadata['tcp_ts'] %= 0x100000000
 
-    def get_ip_id():
+    def get_ip_id(self):
         # get
         result = self.metadata['ip_id']
         # update
         self.metadata['ip_id'] += self.metadata['ip_id_delta']
-        self.metadata['ip_id'] %= 0x10000L
+        self.metadata['ip_id'] %= 0x10000
         return result
 
-    def get_cip_id():
+    def get_cip_id(self):
         # get
         result = self.metadata['cip_id']
         # update
         self.metadata['cip_id'] += self.metadata['cip_id_delta']
-        self.metadata['cip_id'] %= 0x10000L
+        self.metadata['cip_id'] %= 0x10000
         return result
 
-    def get_icmp_id():
+    def get_icmp_id(self):
         # get
         if self.metadata['icmp_id'] is None:
-            result = get_ip_id()
+            result = self.get_ip_id()
             return result
         # update
         result = self.metadata['icmp_id']
         self.metadata['icmp_id'] += self.metadata['icmp_id_delta']
-        self.metadata['icmp_id'] %= 0x10000L
+        self.metadata['icmp_id'] %= 0x10000
         return result
 
-    def get_tcp_seq():
+    def get_tcp_seq(self):
         # get
         result = self.metadata['tcp_isn'] + self.metadata['tcp_isn_dev']
         result = int(int(result/self.metadata['tcp_isn_gcd'])*self.metadata['tcp_isn_gcd'])
-        result %= 0x100000000L
+        result %= 0x100000000
         # update
         self.metadata['tcp_isn_dev'] *= -1
         self.metadata['tcp_isn'] += self.metadata['tcp_isn_delta']
-        self.metadata['tcp_isn_dev'] %= 0x100000000L
+        self.metadata['tcp_isn_dev'] %= 0x100000000
         return result
 
-    def get_tcp_ts():
+    def get_tcp_ts(self):
         # get
         result = int(round(self.metadata['tcp_ts']))
         # update
         self.metadata['tcp_ts'] += self.metadata['tcp_ts_delta']
-        self.metadata['tcp_ts'] %= 0x100000000L
+        self.metadata['tcp_ts'] %= 0x100000000
         return result
 
 """        

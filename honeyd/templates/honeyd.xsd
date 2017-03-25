@@ -25,10 +25,14 @@
               <xs:element name="action" maxOccurs="1" minOccurs="1">
               <!-- action -->
                 <xs:complexType>
+                    <xs:attribute type="xs:string" name="tcp" use="required"/>
+                    <xs:attribute type="xs:string" name="udp" use="required"/>
+                    <xs:attribute type="xs:string" name="icmp" use="required"/>
+                <!--
                   <xs:attribute name="tcp" use="required">
                     <xs:simpleType>
                       <xs:restriction base="xs:string">
-                        <xs:pattern value="(block|open|closed|filtered|tarpit)"/>
+                        <xs:pattern value="(block|open|closed|filtered|proxy)"/>
                       </xs:restriction>
                     </xs:simpleType>
                   </xs:attribute>
@@ -36,7 +40,7 @@
                   <xs:attribute name="udp" use="required">
                     <xs:simpleType>
                       <xs:restriction base="xs:string">
-                        <xs:pattern value="(block|open|closed|filtered)"/>
+                        <xs:pattern value="(block|open|closed|filtered|proxy)"/>
                       </xs:restriction>
                     </xs:simpleType>
                   </xs:attribute>
@@ -44,11 +48,11 @@
                   <xs:attribute name="icmp" use="required">
                     <xs:simpleType>
                       <xs:restriction base="xs:string">
-                        <xs:pattern value="(block|open|closed)"/>
+                        <xs:pattern value="(block|open|closed|filtered|proxy)"/>
                       </xs:restriction>
                     </xs:simpleType>
                   </xs:attribute>
-                  
+                -->
                 </xs:complexType>
               <!-- END OF action -->
               </xs:element>

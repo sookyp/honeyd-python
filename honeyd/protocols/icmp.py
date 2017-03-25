@@ -1,42 +1,43 @@
 #!/usr/bin/env python
 
-import impacket
+from impacket import ImpactPacket
 
 # TODO: create proper packets
 class ICMPHandler(object):
-    type_filter = { impacket.ImpactPacket.ICMP.ICMP_ECHO : impacket.ImpactPacket.ICMP.ICMP_ECHOREPLY,
-                    impacket.ImpactPacket.ICMP.ICMP_IREQ : impacket.ImpactPacket.ICMP.ICMP_IREQREPLY,
-                    impacket.ImpactPacket.ICMP.ICMP_MASKREQ : impacket.ImpactPacket.ICMP.ICMP_MASKREPLY,
-                    impacket.ImpactPacket.ICMP.ICMP_TSTAMP : impacket.ImpactPacket.ICMP.ICMP_TSTAMPREPLY }
-
-    # TODO: update sequence and id numbers
     def opened(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # create reply packets
-        reply_icmp = impacket.ImpactPacket.ICMP()
-        reply_ip = impacket.ImpactPacket.IP()
+        type_filter = { ImpactPacket.ICMP.ICMP_ECHO : ImpactPacket.ICMP.ICMP_ECHOREPLY,
+                        ImpactPacket.ICMP.ICMP_IREQ : ImpactPacket.ICMP.ICMP_IREQREPLY,
+                        ImpactPacket.ICMP.ICMP_MASKREQ : ImpactPacket.ICMP.ICMP_MASKREPLY,
+                        ImpactPacket.ICMP.ICMP_TSTAMP : ImpactPacket.ICMP.ICMP_TSTAMPREPLY }
 
         icmp_pkt = pkt.child()
         if icmp_pkt.get_icmp_type() not in type_filter.keys():
             # ignore packet
             return None
 
-        # TODO: set other fields needed
+        # icmp packet
+        reply_icmp = ImpactPacket.ICMP()
         reply_icmp.set_icmp_type(type_filter[icmp_pkt.get_icmp_type()])
-        reply_icmp.set_icmp_id(cb_icmp_id())
+        reply_icmp.set_icmp_code(0)
+        reply_icmp.set_icmp_id(icmp_pkt.get_icmp_id()) # TODO ? cb_icmp_id
         reply_icmp.set_icmp_seq(icmp_pkt.get_icmp_seq())
-        reply_icmp.set_icmp_tos(icmp_pkt.get_icmp_tos())
+        reply_icmp.auto_checksum = 1
+
+        # ip packet
+        reply_ip = ImpactPacket.IP()
+        reply_ip.set_ip_v(4)
+        reply_ip.set_ip_p(1)
+        reply_ip.set_ip_rf(False)
+        reply_ip.set_ip_df(False)
+        reply_ip.set_ip_mf(False)
+        reply_ip.set_ip_src(pkt.get_ip_dst())
+        reply_ip.set_ip_dst(pkt.get_ip_src())
+        reply_ip.set_ip_id(cb_ip_id())
+        reply_ip.auto_checksum = 1
 
         # ICMP ECHO REPLY
-        if icmp_pkt.get_icmp_type() == impacket.ImpactPacket.ICMP.ICMP_ECHO:
-            # TODO: special log if nmap scan is assumed ?
-            """
-            # nmap probe 1
-            if is_nmap_icmp_echo_probe_1(pkt):
-                pass
-            # nmap probe 2
-            if is_nmap_icmp_echo_probe_2(pkt):
-                pass
-            """
+        if icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_ECHO:
             # check R
             if personality.fp_ie.has_key('R'):
                 if personality.fp_ie['R'] == 'N':
@@ -68,6 +69,7 @@ class ICMPHandler(object):
                         reply_icmp.set_icmp_code(int(personality.fp_ie['CD'], 16))
                     except:
                         raise Exception('Unsupported IE:CD=%s', personality.fp_ie['CD'])
+
             # check T
             ttl = 0x7f
             if personality.fp_ie.has_key('T'):
@@ -84,30 +86,28 @@ class ICMPHandler(object):
                     ttl = int(personality.fp_ie['TG'], 16)
                 except:
                     raise Exception('Unsupported IE:TG=%s', personality.fp_ie['TG'])
-            # TODO: update TTL according to path length
+
             delta_ttl = len(path)
-            reply_ip.set_ip_ttl(ttl)
+            reply_ip.set_ip_ttl(ttl-delta_ttl)
 
             # include ICMP ECHO data
             data = icmp_pkt.child()
-            if len(data):
+            if data.get_size():
                 reply_icmp.contains(data)
-            reply_ip.set_ip_src(pkt.get_ip_dst())
-            reply_ip.set_ip_dst(pkt.get_ip_src())
-            reply_ip.set_ip_id(cb_ip_id())
+            reply_icmp.calculate_checksum()
             reply_ip.contains(reply_icmp)
             return reply_ip
 
         # ICMP IRQ REPLY
-        elif icmp_pkt.get_icmp_type() == impacket.ImpactPacket.ICMP.ICMP_IREQ:
+        elif icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_IREQ:
             pass
 
         # ICMP MASK REPLY
-        elif icmp_pkt.get_icmp_type() == impacket.ImpactPacket.ICMP.ICMP_MASKREQ:
+        elif icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_MASKREQ:
             pass
 
         # ICMP TSTAMP REPLY
-        elif icmp_pkt.get_icmp_type() == impacket.ImpactPacket.ICMP.ICMP_TSTAMP:
+        elif icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_TSTAMP:
             pass
 
         # TODO: encapsulate into ethernet frame if needed
@@ -119,6 +119,9 @@ class ICMPHandler(object):
 
     def filtered(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         # ICMP filtered is ignored
+        return None
+
+    def blocked(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         return None
 
     # We won't need these checks
@@ -162,7 +165,7 @@ class ICMPHandler(object):
         icmp = pkt.child()
         if icmp.get_icmp_code() != 0:
             return False
-        if icmp.get_icmp_seq() != icmp_seq + 1:
+        if icmp.get_icmp_seq() != 296:
             return False
         if pkt.get_ip_id() != ip_id + 1:
             return False

@@ -3,6 +3,7 @@
 import sys
 import logging
 import networkx
+import ipaddress
 
 from lxml import etree
 
@@ -32,7 +33,9 @@ class Builder(object):
 
         # build default template
         if default is None:
-            default = Device('default', 'Linux 2.6.31', '00:08:c7:1b:8c:02', {'tcp':'closed', 'udp':'closed', 'icmp':'closed'}, list(), list())
+            personality_parser = Parser(fp_file, mac_file)
+            default_personality = personality_parser.parse('Linux 2.6.31')
+            default = Device('default', default_personality, '00:08:c7:1b:8c:02', {'tcp':'closed', 'udp':'closed', 'icmp':'closed'}, list(), list())
 
         logger.info('Building virtual network')
         # TODO: ensure user cannot configure bad network
@@ -83,13 +86,33 @@ class Builder(object):
                 personality = personality_parser.parse(personality_name)
 
                 #ethernet
-                ethernet = entry.xpath('./ethernet/text()')[0]
+                ethernet = entry.xpath('./ethernet/text()')
+                if len(ethernet):
+                    ethernet = ethernet[0]
+                else:
+                    # TODO: random generation according to personality OUI
+                    ethernet = '00:00:00:00:00:00'
 
                 # actions
                 action = dict()
                 action['tcp'] = entry.xpath('./action/@tcp')[0]
                 action['udp'] = entry.xpath('./action/@udp')[0]
                 action['icmp'] = entry.xpath('./action/@icmp')[0]
+                for key, value in action.items():
+                    if value.lower() not in ['block', 'open', 'closed', 'filtered'] or not value.lower().startswith('proxy '):
+                        logger.error('Error invalid action defined in configuration at Name: %s Protocol: %s Value: %s.', personality_name, key, value)
+                        sys.exit(1)
+                    if value.lower().startswith('proxy '):
+                        proxy_data = value[len('proxy '):].split(':')
+                        if len(proxy_data) != 2:
+                            logger.error('Error invalid proxy defined in configuration at Name: %s Protocol: %s Value: %s.', personality_name, key, value)
+                            sys.exit(1)
+                        try:
+                            ipaddress.ip_address(unicode(proxy_data[0]))
+                            int(proxy_data[1], 10)
+                        except ValueError:
+                            logger.error('Error invalid IP address or port number defined in configuration at Name: %s Protocol: %s Value: %s.', personality_name, key, value)
+                            sys.exit(1)
 
                 # services
                 service_list = list()
@@ -116,8 +139,7 @@ class Builder(object):
 
                         # ip address
                         ip = bind.xpath('./@ip')[0]
-
-                        bind_list.append(ip)
+                        bind_list.append(unicode(ip))
 
                 # build network devices
                 device_list.append(Device(name, personality, ethernet, action, service_list, bind_list))
@@ -129,9 +151,11 @@ class Builder(object):
 
                 # ip
                 ip = entry.xpath('./@ip')[0]
+                ip = unicode(ip)
 
                 # subnet address
                 subnet = entry.xpath('./@subnet')[0]
+                subnet = unicode(subnet)
 
                 entry_point = entry.xpath('./@entry')
                 if len(entry_point):
@@ -151,9 +175,9 @@ class Builder(object):
                 else:
                     loss = 0
 
-                connect_list = [child.text for child in entry.iter('connect')]
-                link_list = [child.text for child in entry.iter('link')]
-                unreach_list = [child.text for child in entry.iter('unreach')]
+                connect_list = [unicode(child.text) for child in entry.iter('connect')]
+                link_list = [unicode(child.text) for child in entry.iter('link')]
+                unreach_list = [unicode(child.text) for child in entry.iter('unreach')]
 
                 # build network routes
                 route_list.append(Route(ip, subnet, entry_point, latency, loss, connect_list, link_list, unreach_list))
@@ -164,6 +188,7 @@ class Builder(object):
 
                 # ip address
                 ip = entry.xpath('./@ip')[0]
+                ip = unicode(ip)
 
                 # interface
                 interface = entry.xpath('./@interface')[0]

@@ -5,17 +5,11 @@
 <personality>4.3BSD</personality>
 <action tcp="open" udp="closed" icmp="open"/>
 <service_list>
-<service protocol="tcp" port="80" execute="scripts/web.sh"/>
-<service protocol="tcp" port="22" execute="scripts/test.sh"/>
-<service protocol="tcp" port="23" execute="scripts/telnet.pl"/>
 <service protocol="udp" port="53" execute="open"/>
 </service_list>
 <bind_list>
-<bind ip="192.168.100.51"/>
-<bind ip="192.168.100.52"/>
-<bind ip="192.168.100.53"/>
-<bind ip="192.168.100.54"/>
-<bind ip="192.168.100.55"/>
+<bind ip="10.0.2.100"/>
+<bind ip="10.0.2.101"/>
 </bind_list>
 </device>
 <device>
@@ -26,20 +20,20 @@
 <service protocol="tcp" port="22" execute="scripts/test.sh"/>
 </service_list>
 <bind_list>
-<bind ip="192.168.100.100"/>
-<bind ip="192.168.100.101"/>
-<bind ip="192.168.100.102"/>
-<bind ip="192.168.100.103"/>
+<bind ip="10.0.2.200"/>
+<bind ip="10.0.2.201"/>
+<bind ip="10.0.2.202"/>
+<bind ip="10.0.2.203"/>
 </bind_list>  
 </device>
 </device_information>
 <routing_information>
-<router ip="192.168.100.100" subnet="192.168.0.0/16" entry="true">
-<connect>192.168.100.101</connect>
-<link>192.168.100.0/24</link>
+<router ip="10.0.2.200" subnet="10.0.0.0/16" entry="true">
+<connect>10.0.2.201</connect>
+<link>10.0.0.0/24</link>
 </router>
-<router ip="192.168.100.101" subnet="192.168.100.0/16" entry="false">
-<link>192.168.200.0/24</link>
+<router ip="10.0.2.201" subnet="10.0.0.0/16" entry="false">
+<link>10.0.0.0/24</link>
 </router>
 </routing_information>
 <external></external>

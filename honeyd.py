@@ -21,7 +21,7 @@ import honeyd
 from honeyd.core.builder import Builder
 from honeyd.core.dispatcher import Dispatcher
 
-from subprocess import Popen #, call
+from honeyd.utilities.hpfeeds import HPFeedsLogger
 
 logger = logging.getLogger()
 package_directory = os.path.dirname(os.path.abspath(honeyd.__file__))
@@ -42,7 +42,7 @@ def setup_logging(log_file, verbose):
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
-        sys.tracebacklimit = 0
+        # sys.tracebacklimit = 0
 
     logger.setLevel(log_level)
 
@@ -149,6 +149,10 @@ def setup_mac_prefix(file):
       except ContentTooShortError:
           logger.exception('Connection interupted: nmap-mac-prefixes retrieval failed')
 
+def unhandled_exception(greenlet):
+    logger.error('Stopping honeypot: %s is dead: %s', greenlet, greenlet.exception)
+    sys.exit(1)
+
 def main():
 
     args = parse_arguments()
@@ -165,45 +169,58 @@ def main():
 
     setup_os_fingerprints(args.os_fingerprint)
     setup_mac_prefix(args.mac_prefix)
+    
+    # TODO: handle arguments
+    hpfeeds = HPFeedsLogger(args.workdir)
 
     network, default, devices, routes, externals = Builder().build_network(args.config, args.os_fingerprint, args.mac_prefix)
 
     valid_interfaces = netifaces.interfaces()
     # ensure only valid interfaces are listed - safe call of system shell
     arpd_interfaces = list()
+    dispatcher = list()
     for interface in args.interface:
         if interface in valid_interfaces:
             arpd_interfaces.append(interface)
-            # spawn dispatcher for each interface
-            gevent.spawn(Dispatcher(interface, network, default, (devices, routes, externals)))
+             # dispatcher.append(Dispatcher(interface, network, default, (devices, routes, externals), hpfeeds))
         else:
             logger.info('No valid interface detected for %s, ignoring configuration', interface)
 
     # filter out non-CIDR notation
-    arp_address = list()
+    arpd_address = list()
     for address in args.address:
         # matches ddd.ddd.ddd.ddd, ddd.ddd.ddd.ddd/dd, ddd.ddd.ddd.ddd-ddd.ddd.ddd.ddd
         # ((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?
         is_cidr = re.match('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?', address)
         if is_cidr is not None:
-            arp_address.append(address)
+            arpd_address.append(address)
     # call farpd for all interfaces
     try:
         # call(['arpd', arpd_interfaces])
-        arp_daemon = Popen('farpd', '-i', arpd_interfaces, arpd_address)
-    except (OSError, ValueError, CalledProcessError):
-        logger.excpetion('Cannot invoke arpd process on interfaces %s', arpd_interfaces)
+        arp_daemon = gevent.subprocess.Popen(['farpd', '-d', '-i', ' '.join(arpd_interfaces), ' '.join(arpd_address)], stdout=None, stderr=None)
+    except Exception as ex:
+        logger.error('Cannot invoke arpd process on interfaces %s => %s', arpd_interfaces, ex)
         sys.exit(1)
-    drop_privileges(args.uid, args.gid)
+    greenlet = list()
+    for interface in arpd_interfaces:
+        # spawn dispatcher for each interface
+        greenlet.append(gevent.spawn(Dispatcher, interface, network, default, (devices, routes, externals), hpfeeds))
+        # greenlet.append(gevent.spawn(listener.start))
+        # greenlest.link_exception(unhandled_exception)
 
+    # we might not be able to drop privileges as we are using raw sockets
+    # drop_privileges(args.uid, args.gid)
+    
     try:
-        gevent.wait()
+        gevent.joinall(greenlet)
     except KeyboardInterrupt:
         logging.info('Stopping Honeyd.')
-        # TODO: terminate greenlets on interfaces
         logging.info('Terminating arpd daemon.')
-        # terminate arpd
-        arp_daemon.terminate()
+        arp_daemon.kill()
+    
+    if arp_daemon:
+        logging.info('Terminating arpd daemon.')
+        arp_daemon.kill()
 
 if __name__ == "__main__":
     main()
