@@ -16,22 +16,6 @@ wget $server_url/static/registration.txt -O registration.sh
 chmod 755 registration.sh
 . ./registration.sh $server_url $deploy_key "honeyd-python"
 
-# OS_DISTRO = lsb_release -i | grep -e "\b\w*$"
-# cat /etc/issue
-
-# install requirements
-requirements = ""
-if [ -f /etc/redhat-release  or -f /etc/centos-release ]; then
-    sudo yum -y update
-    sudo yum -y install $requirements
-elif [ -f /etc/debian-version or -f /etc/lsb-release ]; then
-    sudo apt-get update
-    sudo apt-get -y install $requirements
-else
-    echo -e "ERROR: Not supported OS\nExiting..."
-    exit -1
-fi
-
 if  [ ! -f /usr/local/bin/python2.7 ]; then
     # install python
     wget --no-check-certificate https://www.python.org/ftp/python/2.7.6/Python-2.7.6.tar.xz
@@ -51,6 +35,18 @@ if  [ ! -f /usr/local/bin/pip2.7 ]; then
     /usr/local/bin/pip2.7 install virtualenv
 fi
 
+# install requirements
+if [ -f /etc/redhat-release  or -f /etc/centos-release ]; then
+    sudo yum -y update
+    sudo yum -y install git farpd MYSQLdb-python
+elif [ -f /etc/debian-version or -f /etc/lsb-release ]; then
+    sudo apt-get update
+    sudo apt-get -y install git farpd python-mysqldb
+else
+    echo -e "ERROR: Not supported OS\nExiting..."
+    exit -1
+fi
+
 # install supoervisor
 mkdir -p /etc/supervisor
 mkdir -p /etc/supervisor/conf.d
@@ -64,17 +60,28 @@ virtualenv env
 source env/bin/activate
 # python2.7 setup.py install
 
+# TODO: check for pcapy or pcap variant - otherwise clone from github
 /usr/local/bin/pip2.7 install -r requirements.txt
 
 # setup hpfeeds config
 cat > /honeyd/templates/honeyd.cfg <<EOF
 [hpfeeds]
-enabled = True
+enabled = False
 host = $HPF_HOST
 port = $HPF_PORT
 ident = $HPF_IDENT
 secret = $HPF_SECRET
 channels = ["honeyd.events", ]
+
+[mysql]
+enabled = False
+host = localhost
+port = 3306
+db = honeyd
+username = honeyd
+passphrase = honeyd
+logdevice = /tmp/mysql.sock
+logsocket = tcp
 EOF
 
 # setup supervisor

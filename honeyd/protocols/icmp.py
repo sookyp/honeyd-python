@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from datetime import datetime, time
 from impacket import ImpactPacket
 
 # TODO: create proper packets
@@ -20,7 +21,7 @@ class ICMPHandler(object):
         reply_icmp = ImpactPacket.ICMP()
         reply_icmp.set_icmp_type(type_filter[icmp_pkt.get_icmp_type()])
         reply_icmp.set_icmp_code(0)
-        reply_icmp.set_icmp_id(icmp_pkt.get_icmp_id()) # TODO ? cb_icmp_id
+        reply_icmp.set_icmp_id(icmp_pkt.get_icmp_id())
         reply_icmp.set_icmp_seq(icmp_pkt.get_icmp_seq())
         reply_icmp.auto_checksum = 1
 
@@ -100,17 +101,49 @@ class ICMPHandler(object):
 
         # ICMP IRQ REPLY
         elif icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_IREQ:
+            # deprecated
             pass
 
         # ICMP MASK REPLY
         elif icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_MASKREQ:
+            # netifaces.ifaddresses(interface)[netifaces.AF_INET][0]['netmask']
+            """
+            reply_icmp.set_icmp_mask()
+            
+            ttl = 64
+            delta_ttl = len(path)
+            reply_ip.set_ip_ttl(ttl-delta_ttl)
+            
+            reply_icmp.calculate_checksum()
+            reply_ip.contains(reply_icmp)
+            return reply_ip
+            """
             pass
 
         # ICMP TSTAMP REPLY
         elif icmp_pkt.get_icmp_type() == ImpactPacket.ICMP.ICMP_TSTAMP:
-            pass
+            # original time
+            reply_icmp.set_icmp_otime(icmp_pkt.get_icmp_otime())
+            # receive time
+            receive_time = datetime.utcnow()
+            midnight = datetime.combine(receive_time.date(), time(0))
+            delta_receive = receive_time - midnight
+            delta_receive = delta_receive.total_seconds() * 1000
+            reply_icmp.set_icmp_rtime(delta_receive)
+            # transmit time
+            transmit_time = datetime.utcnow()
+            delta_transmit = transmit_time - midnight
+            delta_transmit = delta_transmit.total_seconds() * 1000
+            reply_icmp.set_icmp_ttime(delta_transmit)
+            
+            ttl = 64
+            delta_ttl = len(path)
+            reply_ip.set_ip_ttl(ttl-delta_ttl)
+            
+            reply_icmp.calculate_checksum()
+            reply_ip.contains(reply_icmp)
+            return reply_ip
 
-        # TODO: encapsulate into ethernet frame if needed
         return reply_ip
 
     def closed(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
@@ -124,57 +157,3 @@ class ICMPHandler(object):
     def blocked(self, pkt, path, personality, cb_ip_id=None, cb_cip_id=None, cb_icmp_id=None, cb_tcp_seq=None, cb_tcp_ts=None):
         return None
 
-    # We won't need these checks
-    def is_nmap_icmp_echo_probe_1(pkt):
-        # The first one has the IP DF bit set, a type-of-service (TOS)  byte 
-        # value of zero, a code of nine (even though it should be zero), 
-        # the sequence number 295, a random IP ID and ICMP request identifier, 
-        # and a random character repeated 120 times for the data payload.
-        if pkt.get_ip_df() is not True:
-            return False
-        if pkt.get_ip_tos() != 0:
-            return False
-        icmp = pkt.child()
-        if icmp.get_icmp_code() != 9:
-            return False
-        if icmp.get_icmp_seq() != 295:
-            return False
-
-        # TODO: save this for later use
-        ip_id = pkt.get_ip_id()
-        icmp_id = icmp.get_icmp_id()
-
-        ip_seq = pkt.get_ip_seq()
-        icmp_seq = icmp.get_icmp_seq()
-
-        data = icmp.child()
-        if data.get_size() != 120:
-            # TODO: check all characters are 0x00
-            return False
-        return True
-
-    def is_nmap_icmp_echo_probe_2(pkt):
-        # The second ping query is similar, except a TOS of four 
-        # (IP_TOS_RELIABILITY) is used, the code is zero, 150 bytes of data is 
-        # sent, and the IP ID, request ID, and sequence numbers are incremented 
-        # by one from the previous query values.
-        if pkt.get_ip_df() is not False:
-            return False
-        if pkt.get_ip_tos() != 4:
-            return False
-        icmp = pkt.child()
-        if icmp.get_icmp_code() != 0:
-            return False
-        if icmp.get_icmp_seq() != 296:
-            return False
-        if pkt.get_ip_id() != ip_id + 1:
-            return False
-        if icmp.get_icmp_id() != icmp_id + 1:
-            return False
-        # TODO: update ids and seqs ?
-
-        data = icmp.child()
-        if data.get_size() != 150:
-            # TODO: check data
-            return False
-        return True

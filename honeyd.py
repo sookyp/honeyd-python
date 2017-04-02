@@ -11,6 +11,7 @@ import logging
 import argparse
 import gevent
 import urllib
+import ipaddress
 import netifaces
 import re
 
@@ -21,7 +22,8 @@ import honeyd
 from honeyd.core.builder import Builder
 from honeyd.core.dispatcher import Dispatcher
 
-from honeyd.utilities.hpfeeds import HPFeedsLogger
+from honeyd.utilities.hpfeeds_logger import HPFeedsLogger
+from honeyd.utilities.sqldb_logger import DatabaseLogger 
 
 logger = logging.getLogger()
 package_directory = os.path.dirname(os.path.abspath(honeyd.__file__))
@@ -114,6 +116,7 @@ def parse_arguments():
     parser.add_argument("-w", "--workdir", help="Set Honeyd working directory", dest="workdir", default=os.getcwd())
     parser.add_argument("-l", "--logfile", help="Set logfile path and name", default="honeyd.log")
     parser.add_argument("-c", "--config", help="Set configuration file path and name", default=os.path.join(package_directory, "templates/honeyd.xml"))
+    parser.add_argument("-p", "--publish", help="Set database and hpfeeds configuration file", default=os.path.join(package_directory, "templates/honeyd.cfg"))
     parser.add_argument("-u", "--uid", help="Set the user id Honeyd should run as", default=None)
     parser.add_argument("-g", "--gid", help="Set the group id Honeyd should run as", default=None)
     parser.add_argument("-i", "--interface", action="append", help="Listen on interface", default=[])
@@ -128,10 +131,6 @@ def parse_arguments():
         sys.exit(0)
 
     return args
-
-def prepare_environment(work_directory):
-    # TODO: set up database environment
-    pass
 
 def setup_os_fingerprints(file):
     if not os.path.isfile(file):
@@ -159,10 +158,6 @@ def main():
 
     setup_logging(args.logfile, args.verbose)
 
-    # set up database environment
-    if os.path.isdir(os.path.join(args.workdir, 'honeyd_data/')):
-        prepare_environment(args.workdir)
-
     if not os.path.isfile(args.config):
         args.config = os.path.join(package_directory, 'templates/honeyd.conf')
         logger.info('No honeyd.conf found in current directory, using default configuration: %s', args.config)
@@ -170,8 +165,11 @@ def main():
     setup_os_fingerprints(args.os_fingerprint)
     setup_mac_prefix(args.mac_prefix)
     
-    # TODO: handle arguments
-    hpfeeds = HPFeedsLogger(args.workdir)
+    if not os.path.isfile(args.publish):
+        args.publish = os.path.join(package_directory, "templates/honeyd.cfg")
+        logger.info('No database and hpfeeds configuration file found. Databse and hpfeeds logging is disabled.')
+    hpfeeds = HPFeedsLogger(args.publish)
+    dblogger = DatabaseLogger(args.publish)
 
     network, default, devices, routes, externals = Builder().build_network(args.config, args.os_fingerprint, args.mac_prefix)
 
@@ -189,22 +187,31 @@ def main():
     # filter out non-CIDR notation
     arpd_address = list()
     for address in args.address:
-        # matches ddd.ddd.ddd.ddd, ddd.ddd.ddd.ddd/dd, ddd.ddd.ddd.ddd-ddd.ddd.ddd.ddd
-        # ((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?
+        # TODO: use ipaddress module instead
+        """
+        args.address.split('-')
+        try:
+            ipaddress.ip_address()
+            ipaddress.ip_network()
+        except:
+            pass
+        """
         is_cidr = re.match('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?', address)
         if is_cidr is not None:
             arpd_address.append(address)
     # call farpd for all interfaces
     try:
         # call(['arpd', arpd_interfaces])
-        arp_daemon = gevent.subprocess.Popen(['farpd', '-d', '-i', ' '.join(arpd_interfaces), ' '.join(arpd_address)], stdout=None, stderr=None)
+        DEVNULL = open(os.devnull, 'w')
+        arp_daemon = gevent.subprocess.Popen(['farpd', '-d', '-i', ' '.join(arpd_interfaces), ' '.join(arpd_address)], stdout=DEVNULL, stderr=gevent.subprocess.STDOUT)
+        gevent.sleep(1)
     except Exception as ex:
         logger.error('Cannot invoke arpd process on interfaces %s => %s', arpd_interfaces, ex)
         sys.exit(1)
     greenlet = list()
     for interface in arpd_interfaces:
         # spawn dispatcher for each interface
-        greenlet.append(gevent.spawn(Dispatcher, interface, network, default, (devices, routes, externals), hpfeeds))
+        greenlet.append(gevent.spawn(Dispatcher, interface, network, default, (devices, routes, externals), (hpfeeds, dblogger)))
         # greenlet.append(gevent.spawn(listener.start))
         # greenlest.link_exception(unhandled_exception)
 
@@ -215,10 +222,14 @@ def main():
         gevent.joinall(greenlet)
     except KeyboardInterrupt:
         logging.info('Stopping Honeyd.')
+        for g in greenlet:
+            g.kill()
         logging.info('Terminating arpd daemon.')
         arp_daemon.kill()
     
     if arp_daemon:
+        for g in greenlet:
+            g.kill()
         logging.info('Terminating arpd daemon.')
         arp_daemon.kill()
 

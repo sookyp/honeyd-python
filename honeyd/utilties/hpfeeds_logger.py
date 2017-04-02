@@ -2,33 +2,31 @@
 
 import logging
 
-import hpfeeds
 import os
 import gevent
 import socket
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
+import hpfeeds
+from hpfeeds import FeedException
+
 logger = logging.getLogger(__name__)
 
-# TODO
 class HPFeedsLogger(object):
-    def __init__(self, work_dir, config="honeyd.cfg", reconnect=True):
+    def __init__(self, config_file):
         parser = ConfigParser()
-        config = os.path.join(work_dir, config)
         self.enabled = False
-        if not os.path.isfile(config):
-            logger.info('No honeyd.cfg configuration file found for hpfeeds. Hpfeeds logging is disabled.')
-            return
-        parser.read(config)
+        self.reconnect = True
+        parser.read(config_file)
         self._initial_connection_happened = False
         try:
-            if self.parser.getboolean("hpfeed", "enabled"):
-                self.host = self.parser.get("hpfeed", "host")
-                self.port = int(self.parser.getint("hpfeed", "port"))
-                self.ident = self.parser.get("hpfeed", "ident")
-                self.timeout = int(self.parser.get("hpfeed", "timeout"))
-                self.secret = self.parser.get("hpfeed", "secret")
-                self.channels = self.parser.get("hpfeed", "channels")
+            if parser.getboolean("hpfeeds", "enabled"):
+                self.host = parser.get("hpfeeds", "host")
+                self.port = int(parser.getint("hpfeeds", "port"))
+                self.ident = parser.get("hpfeeds", "ident")
+                self.timeout = int(parser.get("hpfeeds", "timeout"))
+                self.secret = parser.get("hpfeeds", "secret")
+                self.channels = parser.get("hpfeeds", "channels")
                 self.max_retries = 5
                 self.enabled = True
                 self.hpc = None
@@ -40,13 +38,13 @@ class HPFeedsLogger(object):
     def _start_connection(self, host, port, ident, secret, timeout, reconnect):
         try:
             self.hpc = hpfeeds.new(host, port, ident, secret, timeout, reconnect)
-            self._initial_connection_happend = True
+            self._initial_connection_happened = True
         except hpfeeds.FeedException:
             logger.exception('Exception: cannot connect to hpfeeds service.')
 
     def publish(self, attack_event):
         retries = 0
-        if self._initial_connection_happend:
+        if self._initial_connection_happened:
             while True:
                 if retries >= self.max_retries:
                     break

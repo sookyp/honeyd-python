@@ -7,15 +7,15 @@ import sys
 ISSUES WITH SNIFFERS:
     * there are few forum posts about pcap and pycapy missing some packets, which is critical for a honeypot
       this needs to be checked in the future. We will stick with pcap for the time being.
-    * pycapy hangs the event loop and makes the honeypot unresponsive
     * pyshark supposedly captures all packets, except it provides the output as text. this can be parsed easily,
       however the issue with proxies and subsystems is not avoidable as these need raw packets. I rewrote the project
       using pyshark, in case I figure out something.
     * scapy also handles all packets except it is very slow in benchmarks, this would cause the honeypot to sacrifice
       potential throughput and would greatly increase performance requirements.
 """
-# import pcapy
-import pcap
+import pcapy
+
+# import pcap
 import impacket
 import random
 import socket
@@ -23,8 +23,7 @@ import networkx
 import netifaces
 import ipaddress
 
-from impacket import ImpactPacket
-from impacket import ImpactDecoder
+from impacket import ImpactPacket, ImpactDecoder
 
 import honeyd
 from honeyd.utilities.attack_event import AttackEvent
@@ -34,27 +33,42 @@ logger = logging.getLogger(__name__)
 # TODO: handle subsystems, proxies
 
 class Dispatcher(object):
-    def __init__(self, interface, network, default, elements, hpfeeds):
+    def __init__(self, interface, network, default, elements, loggers):
         self.interface = interface
         self.mac = netifaces.ifaddresses(self.interface)[netifaces.AF_LINK][0]['addr']
         self.network = network
         self.default = default
         self.devices, self.routes, self.externals = elements
-        self.hpfeeds = hpfeeds
+        self.hpfeeds, self.dblogger = loggers
         self.entry_points = list()
         self.unreach_list = list()
-        self.pcap_object = pcap.pcap(self.interface)
+        # self.pcap_object = pcap.pcap(name=self.interface, snaplen=256*1024)
+        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 1000)
         self.decoder = ImpactDecoder.EthDecoder()
-        logger.info('Started dispatcher listening on interface %s', self.interface)
+        self.mac_set = set([self.mac])
+        for d in self.devices:
+            if len(d.mac):
+                self.mac_set.add(d.mac)
         for r in self.routes:
             if r.entry:
                 self.entry_points.append(r)
             self.unreach_list.extend(r.unreach_list)
+        logger.info('Started dispatcher listening on interface %s', self.interface)
+        
+        while True:
+            try:
+                (hdr, pkt) = self.pcapy_object.next()
+                self.callback(hdr, pkt)
+            except KeyboardInterrupt:
+                return
+        """
+        self.pcapy_object.loop(-1, self.callback)
         try:
             for ts, pkt in self.pcap_object:
                 self.callback(ts, pkt)
         except KeyboardInterrupt:
             return
+        """
 
 
     def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, type, code):
@@ -82,29 +96,65 @@ class Dispatcher(object):
         # ethernet frame
         reply_eth = ImpactPacket.Ethernet()
         reply_eth.set_ether_type(0x800)
-        reply_icmp.set_ether.shost(eth_src)
-        reply_icmp.set_ether.dhost(eth_dst)
+        eth_src = [int(i, 16) for i in eth_src.split(':')]
+        eth_dst = [int(i, 16) for i in eth_dst.split(':')]
+        reply_eth.set_ether_shost(eth_src)
+        reply_eth.set_ether_dhost(eth_dst)
         reply_eth.contains(reply_ip)
 
         # send raw frame
-        s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-        s.bind((self.interface, 0))
-        s.send(reply_eth.get_packet())
+        self.pcapy_object.sendpacket(reply_eth.get_packet())
+        
+        # s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+        # s.bind((self.interface, 0))
+        # s.send(reply_eth.get_packet())
+
+    def arp_reply(self, arp_pkt): # TODO: Nmap sends DATA ???
+        # arp packet
+        reply_arp = ImpactPacket.ARP()
+        reply_arp.set_ar_hln(6) # Ethernet size 6
+        reply_arp.set_ar_pln(4) # IPv4 size 4
+        reply_arp.set_ar_hrd(1) # 1:'ARPHRD ETHER', 6:'ARPHRD IEEE802', 15:'ARPHRD FRELAY'
+        reply_arp.set_ar_op(2) # 1:'REQUEST', 2:'REPLY', 3:'REVREQUEST', 4:'REVREPLY', 8:'INVREQUEST', 9:'INVREPLY'
+        reply_arp.set_ar_pro(0x800) # IPv4 0x800
+        mac = [int(i, 16) for i in self.mac.split(':')]
+        reply_arp.set_ar_sha(mac)
+        reply_arp.set_ar_tha(arp_pkt.get_ar_sha())
+        reply_arp.set_ar_spa(arp_pkt.get_ar_tpa())
+        reply_arp.set_ar_tpa(arp_pkt.get_ar_spa())
+        
+        # ethernet frame
+        reply_eth = ImpactPacket.Ethernet()
+        reply_eth.set_ether_type(0x800)
+        reply_eth.set_ether_shost(mac)
+        reply_eth.set_ether_dhost(arp_pkt.get_ar_sha())
+        reply_eth.contains(reply_arp)
+
+        # send raw frame
+        self.pcapy_object.sendpacket(reply_eth.get_packet())
+
+        # s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+        # s.bind((self.interface, 0))
+        # s.send(reply_eth.get_packet())
 
     def callback(self, ts, pkt):
         reply_packet = None
 
-        # TODO: check other mac from config addresses as well
-        # QUESTION: filter out ARP ?
-        
         # ethernet layer
-        eth = self.decoder.decode(pkt)
+        try:
+            eth = self.decoder.decode(pkt)
+        except:
+            logger.exception('Exception: Cannot decode packet')
+            return None
         eth_type = eth.get_ether_type()
         eth_src = eth.as_eth_addr(eth.get_ether_shost())
         eth_dst = eth.as_eth_addr(eth.get_ether_dhost())
 
-        if eth_src == self.mac or eth_type == ImpactPacket.ARP.ethertype:
+        if eth_src in self.mac_set:
             return
+        if eth_type == ImpactPacket.ARP.ethertype:
+            arp = eth.child()
+            self.arp_reply(arp)
         if eth_type != ImpactPacket.IP.ethertype:
             logger.info('Not supported non-IP packet type %s', hex(eth_type))
             return
@@ -118,8 +168,8 @@ class Dispatcher(object):
 
         # tcp/udp/icmp layer
         proto = ip.child()
-        port_src = 0
-        port_dst = 0
+        proto_src = 0
+        proto_dst = 0
         if ip_proto == ImpactPacket.TCP.protocol:
             proto_src = proto.get_th_sport()
             proto_dst = proto.get_th_dport()
@@ -134,8 +184,8 @@ class Dispatcher(object):
         attack_event.eth_type = eth_type
         attack_event.ip_src = ip_src
         attack_event.ip_dst = ip_dst
-        attack_event.port_src = port_src
-        attack_event.port_dst = port_dst
+        attack_event.port_src = proto_src
+        attack_event.port_dst = proto_dst
         attack_event.proto = ip_proto
         attack_event.raw_pkt = pkt
         attack_event = attack_event.event_dict()
@@ -143,8 +193,8 @@ class Dispatcher(object):
         logger.info('SRC=%s:%s (%s) -> DST=%s:%s (%s) TYPE=%s PROTO=%s TTL=%s', ip_src, proto_src, eth_src, ip_dst, proto_dst, eth_dst, eth_type, ip_proto, ip_ttl)
         if self.hpfeeds.enabled:
             self.hpfeeds.publish(attack_event)
-
-        # TODO: log into database
+        if self.dblogger.enabled:
+            self.dblogger.insert(attack_event)
 
         # TODO: verify checksum to ensure validity of incoming packets
         """
@@ -257,14 +307,19 @@ class Dispatcher(object):
                     self.icmp_reply(eth_dst, eth_src, target_router.ip, ip_src, ImpactPacket.ICMP.ICMP_TIMXCEED, ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
                     return
 
-                reply_packet = handler.handle_packet(eth, path, (ip_proto, port_dst))
+                reply_packet = handler.handle_packet(eth, path, (ip_proto, proto_dst))
                 break
             # else-branch: router with no defined entry to it - ignore
 
-        print reply_packet
+        # print '-------------------------------------------------------'
+        # print reply_packet
+        # print '-------------------------------------------------------'
         # TODO: handle reply - wait according to latency
         if reply_packet is not None:
-            # self.pcap_object.sendpacket(reply_packet.get_packet())
-            s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-            s.bind((self.interface, 0))
-            s.sendto(reply_packet.get_packet(), (ip_src, proto_src))
+            # mac = [int(i, 16) for i in self.mac.split(':')]
+            # temporary set
+            # reply_packet.set_ether_shost(mac)
+            self.pcapy_object.sendpacket(reply_packet.get_packet())
+            # s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+            # s.bind((self.interface, 0))
+            # s.send(reply_packet.get_packet())

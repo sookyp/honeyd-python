@@ -99,7 +99,7 @@ class Builder(object):
                 action['udp'] = entry.xpath('./action/@udp')[0]
                 action['icmp'] = entry.xpath('./action/@icmp')[0]
                 for key, value in action.items():
-                    if value.lower() not in ['block', 'open', 'closed', 'filtered'] or not value.lower().startswith('proxy '):
+                    if not (value.lower() in ['block', 'open', 'closed', 'filtered'] or value.lower().startswith('proxy ')):
                         logger.error('Error invalid action defined in configuration at Name: %s Protocol: %s Value: %s.', personality_name, key, value)
                         sys.exit(1)
                     if value.lower().startswith('proxy '):
@@ -125,6 +125,11 @@ class Builder(object):
 
                         # port
                         port = service.xpath('./@port')[0]
+                        try:
+                            port = int(port, 10)
+                        except ValueError:
+                            logger.error('Error invalid port number defined in configuration at Name: %s Protocol: %s Value: %s.', personality_name, protocol, port)
+                            sys.exit(1)
 
                         # execute action
                         execute = service.xpath('./@execute')[0]
