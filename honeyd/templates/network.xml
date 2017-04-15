@@ -5,14 +5,13 @@
 <personality>4.3BSD</personality>
 <action tcp="open" udp="closed" icmp="open"/>
 <service_list>
-<service protocol="tcp" port="22" execute="closed"/>
+<service protocol="tcp" port="22" execute="proxy 10.0.2.12:gre"/>
 <service protocol="tcp" port="1024" execute="closed"/>
 <service protocol="tcp" port="3" execute="filtered"/>
 <service protocol="tcp" port="5" execute="filtered"/>
 <service protocol="udp" port="105" execute="open"/>
 <service protocol="udp" port="205" execute="open"/>
 <service protocol="udp" port="505" execute="filtered"/>
-<service protocol="icmp" port="0" execute="python2.7 honeyd/scripts/test.py"/>
 </service_list>
 <bind_list>
 <bind ip="10.0.2.100"/>
@@ -30,7 +29,7 @@
 <bind ip="10.0.2.201"/>
 <bind ip="10.0.2.202"/>
 <bind ip="10.0.2.203"/>
-</bind_list>  
+</bind_list>
 </device>
 </device_information>
 <routing_information>
@@ -44,9 +43,3 @@
 </routing_information>
 <external></external>
 </network_configuration>
-<!-- Command list -->
-<!-- For behaviour check honeyd-master/parse.y-->
-<!-- 
-create, add, bcast, port, srcport, dstport, bind, clone, filtered, closed, default, action, set, personality, random, annotatem no, finscan, fragment, drop, old, new, proxy, uptime, droprate, in , syn, uid, gid, route, entry, net, link, unreach, latency, bandwidth, Kbps, Mbps, ms, loss, subsystem, template, option, to, on , dhcp, shared,restart, network, tunnel, tarpit, spoof, from, delete, tcp, udp, icmp, dynamic, source, list, ip, os, use, if, otherwise, between , time, internal, maxfds, ethernet, debug, include,
-  -->
-  <!-- End of Command list -->

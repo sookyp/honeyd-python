@@ -1,58 +1,32 @@
-<!-- TODO: tunneling, additional rules and attributes -->
-
 <xs:schema attributeFormDefault="unqualified" elementFormDefault="unqualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:element name="network_configuration">
   <!-- network_configuration -->
     <xs:complexType>
       <xs:sequence>
-    
+
       <xs:element name="device_information" maxOccurs="1" minOccurs="1">
       <!-- device_information -->
         <xs:complexType>
           <xs:sequence>
-      
+
           <xs:element name="device" maxOccurs="unbounded" minOccurs="0">
           <!-- device -->
             <xs:complexType>
               <xs:sequence>
-              
+
               <xs:element name="name" type="xs:string" maxOccurs="1" minOccurs="1"><!-- END OF name --></xs:element>
-              
+
               <xs:element name="personality" type="xs:string" maxOccurs="1" minOccurs="1"><!-- END OF personality --></xs:element>
-              
+
               <xs:element name="ethernet" type="xs:string" maxOccurs="1" minOccurs="0"><!-- END OF ethernet --></xs:element>
-              
+
               <xs:element name="action" maxOccurs="1" minOccurs="1">
               <!-- action -->
                 <xs:complexType>
                     <xs:attribute type="xs:string" name="tcp" use="required"/>
                     <xs:attribute type="xs:string" name="udp" use="required"/>
                     <xs:attribute type="xs:string" name="icmp" use="required"/>
-                <!--
-                  <xs:attribute name="tcp" use="required">
-                    <xs:simpleType>
-                      <xs:restriction base="xs:string">
-                        <xs:pattern value="(block|open|closed|filtered|proxy)"/>
-                      </xs:restriction>
-                    </xs:simpleType>
-                  </xs:attribute>
-                  
-                  <xs:attribute name="udp" use="required">
-                    <xs:simpleType>
-                      <xs:restriction base="xs:string">
-                        <xs:pattern value="(block|open|closed|filtered|proxy)"/>
-                      </xs:restriction>
-                    </xs:simpleType>
-                  </xs:attribute>
-                  
-                  <xs:attribute name="icmp" use="required">
-                    <xs:simpleType>
-                      <xs:restriction base="xs:string">
-                        <xs:pattern value="(block|open|closed|filtered|proxy)"/>
-                      </xs:restriction>
-                    </xs:simpleType>
-                  </xs:attribute>
-                -->
+                    <!-- expected values: block | filtered | closed | open | proxy <ip-string>:<tunnel-mode> -->
                 </xs:complexType>
               <!-- END OF action -->
               </xs:element>
@@ -61,7 +35,7 @@
               <!-- service_list -->
                 <xs:complexType>
                   <xs:sequence>
-              
+
                   <xs:element name="service" maxOccurs="unbounded" minOccurs="0">
                   <!-- service -->
                     <xs:complexType>
@@ -72,17 +46,18 @@
                           </xs:restriction>
                         </xs:simpleType>
                       </xs:attribute>
-                  
+
                       <xs:attribute name="port" use="required">
                         <xs:simpleType>
                           <xs:restriction base="xs:unsignedShort">
                             <xs:pattern value="([0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])"/>
                           </xs:restriction>
                         </xs:simpleType>
-                      </xs:attribute>                      
-                      
+                      </xs:attribute>
+
                       <xs:attribute type="xs:string" name="execute" use="required"/>
-           
+                      <!-- expected values: block | filtered | closed | open | proxy <ip-string>:<tunnel-mode> | shell invocation -->
+
                     </xs:complexType>
                   <!-- END OF service -->
 		  </xs:element>
@@ -91,7 +66,7 @@
                 </xs:complexType>
               <!-- END OF service_list -->
               </xs:element>
-              
+
               <xs:element name="bind_list" maxOccurs="1" minOccurs="0">
               <!-- bind_list -->
                 <xs:complexType>
@@ -105,8 +80,8 @@
                             <xs:pattern value="((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"/>
                           </xs:restriction>
                         </xs:simpleType>
-                      </xs:attribute>                         
-                      
+                      </xs:attribute>
+
                     </xs:complexType>
                   <!-- END OF bind-->
                   </xs:element>
@@ -114,10 +89,10 @@
                   </xs:sequence>
                 </xs:complexType>
               <!-- END OF bind_list -->
-              </xs:element>  
-          
+              </xs:element>
+
             </xs:sequence>
-            </xs:complexType>  
+            </xs:complexType>
           <!-- END OF device -->
           </xs:element>
 
@@ -125,7 +100,7 @@
         </xs:complexType>
       <!-- END OF device_information -->
       </xs:element>
-      
+
       <xs:element name="routing_information" maxOccurs="1" minOccurs="1">
       <!-- routing_information -->
         <xs:complexType>
@@ -135,13 +110,12 @@
           <!-- router -->
             <xs:complexType>
               <xs:sequence>
-            
+
               <xs:element type="xs:string" name="connect" maxOccurs="unbounded" minOccurs="0"><!-- END OF connect --></xs:element>
               <xs:element type="xs:string" name="link" maxOccurs="unbounded" minOccurs="0"><!-- END OF link --></xs:element>
               <xs:element type="xs:string" name="unreach" maxOccurs="unbounded" minOccurs="0"><!-- END OF unreach --></xs:element>
 
               </xs:sequence>
-              <!-- TODO: tunneling, additional rules-->
 
               <xs:attribute name="ip" use="required">
                 <xs:simpleType>
@@ -149,18 +123,18 @@
                     <xs:pattern value="((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"/>
                   </xs:restriction>
                 </xs:simpleType>
-              </xs:attribute>  
-              
+              </xs:attribute>
+
               <xs:attribute name="subnet" use="required">
                 <xs:simpleType>
                   <xs:restriction base="xs:string">
                     <xs:pattern value="((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)[/](3[01]|[0-2]?[0-9])"/>
                   </xs:restriction>
                 </xs:simpleType>
-              </xs:attribute>  
-              
+              </xs:attribute>
+
               <xs:attribute type="xs:boolean" name="entry" use="optional" default="false"/>
-              
+
               <xs:attribute type="xs:unsignedShort" name="latency" use="optional"/><!-- in milliseconds -->
               <xs:attribute type="xs:unsignedShort" name="loss" use="optional"/><!-- in percentage -->
             </xs:complexType>
@@ -171,12 +145,12 @@
         </xs:complexType>
       <!-- END OF routing_information-->
       </xs:element>
-      
+
       <xs:element name="external" maxOccurs="1" minOccurs="0">
       <!-- external -->
         <xs:complexType>
           <xs:sequence>
-        
+
           <xs:element name="bind" maxOccurs="unbounded" minOccurs="0">
           <!-- bind -->
             <xs:complexType>
@@ -186,8 +160,8 @@
                     <xs:pattern value="((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"/>
                   </xs:restriction>
                 </xs:simpleType>
-              </xs:attribute>  
-              
+              </xs:attribute>
+
               <xs:attribute type="xs:string" name="interface" use="required"/>
             </xs:complexType>
           <!-- END OF bind-->
