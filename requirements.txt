@@ -6,4 +6,6 @@ ipaddress
 netaddress
 netifaces
 hpfeeds
+MYSQLdb-python
 pcapy
+requests
