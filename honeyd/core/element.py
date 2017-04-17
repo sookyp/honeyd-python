@@ -64,9 +64,10 @@ class Device(object):
         self.ip_id_generator()
         self.tcp_isn_generator()
         self.tcp_ts_generator()
-        # TODO: might have to check for ICMP with incomplete header
+        # have to check for ICMP with incomplete header
         # script can return IP()/ICMP() -> see impacket bug #4870, use IPDecoderForICMP
         self.decoder = ImpactDecoder.IPDecoder()
+        self.decoder_icmp = ImpactDecoder.IPDecoderForICMP()
 
     def handle_packet(self, ethernet_packet, path, target, tunnels, cb_tunnel=None):
         """
@@ -134,7 +135,7 @@ class Device(object):
                                                 gevent.socket.AF_PACKET, gevent.socket.SOCK_RAW, gevent.socket.IPPROTO_IPIP)
                                             s.sendto(ip_packet.get_packet(), (tunnel_interface, 0x0800))
 
-                                        reply_ip = cb_tunnel()
+                                        reply_ip = cb_tunnel(proxy_ip)
                                         if reply_ip is None:
                                             return None
                                         delta_ttl = reply_ip.get_ip_ttl() - len(path)
@@ -160,7 +161,15 @@ class Device(object):
                                     service[2], shell=True, stdin=gevent.subprocess.PIPE, stdout=gevent.subprocess.PIPE, stderr=None)
                                 try:
                                     output, error = script.communicate(input=ip_packet.get_packet(), timeout=10)
-                                    reply = self.decoder.decode(output)
+                                    try:
+                                        reply = self.decoder.decode(output)
+                                    except BaseException:
+                                        try:
+                                            reply = self.decoder_icmp.decode(output)
+                                        except BaseException:
+                                            logger.exception(
+                                                'Exception: Cannot decode packet from script.')
+                                            return None
 
                                     """
                                     inner_packet = reply.child()
@@ -534,9 +543,19 @@ class External(object):
         self.interface = interface
 
     def handle_packet(self, ethernet_packet, path, target, tunnels, cb_tunnel=None):
-        # ip_packet = ethernet_packet.child()
+        # update ttl
+        ip_packet = ethernet_packet.child()
+        delta_ttl = ip_packet.get_ip_ttl() - len(path)
+        ip_packet.set_ip_ttl(delta_ttl)
+        ip_packet.auto_checksum = 1
+        # encapsulate into original ethernet frame
+        # eth_frame = ImpactPacket.Ethernet()
+        # eth_frame.set_ether_type(0x800)
+        # eth_frame.set_ether_shost(ethernet_packet.get_ether_shost())
+        # eth_frame.set_ether_dhost(ethernet_packet.get_ether_dhost())
+        # eth_frame.contains(ip_packet)
         s = gevent.socket.socket(gevent.socket.AF_PACKET, gevent.socket.SOCK_RAW)
-        s.bind((self.interface, 0))
-        s.send(ethernet_packet.get_packet())
-        # s.sendto(ip_packet.get_packet(), (self.interface, 0x0800))
+        # s.bind((self.interface, 0))
+        # s.send(eth_frame.get_packet())
+        s.sendto(ip_packet.get_packet(), (self.interface, 0x0800))
         return None

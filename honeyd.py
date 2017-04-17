@@ -62,7 +62,6 @@ def setup_logging(log_file, verbose):
     root_logger.addHandler(console_log)
     root_logger.addHandler(file_log)
 
-
 """
 def drop_privileges(uid_name=None, gid_name=None):
     if uid_name is None:
@@ -103,16 +102,10 @@ def drop_privileges(uid_name=None, gid_name=None):
                 new_user.pw_name, new_group.gr_name)
 """
 
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Honeyd')
     parser.add_argument("--version", action="store_true", default=False, help="Print Honeyd version and exit")
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Enables logging of debug messages")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Enables logging of debug messages")
     parser.add_argument("-l", "--logfile", help="Set logfile path and name", default="honeyd.log")
     parser.add_argument("-n", "--network", help="Set configuration file path and name",
                         default=os.path.join(package_directory, "templates/network.xml"))
@@ -122,13 +115,8 @@ def parse_arguments():
     # parser.add_argument("-g", "--gid", help="Set the group id Honeyd should run as", default=None)
     parser.add_argument("-i", "--interface", help="Listen on interface", default=None)
     parser.add_argument("-a", "--address", action="append", help="Reply to ARP requests matching address", default=[])
-    parser.add_argument(
-        "-o",
-        "--os-fingerprint",
-        help="Set nmap-style fingerprints file location",
-        default=os.path.join(
-            package_directory,
-            "templates/nmap-os-db"))
+    parser.add_argument("-o", "--os-fingerprint", help="Set nmap-style fingerprints file location",
+                        default=os.path.join(package_directory, "templates/nmap-os-db"))
     parser.add_argument("-m", "--mac-prefix", help="Set nmap-mac-prefixes file location",
                         default=os.path.join(package_directory, "templates/nmap-mac-prefixes"))
 

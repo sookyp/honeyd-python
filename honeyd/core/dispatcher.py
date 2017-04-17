@@ -29,11 +29,13 @@ class Dispatcher(object):
         self.devices, self.routes, self.externals = elements
         self.hpfeeds, self.dblogger = loggers
         self.tunnels = tunnels
-        self.packet_queue = deque()
+        self.packet_queue = dict()
         self.entry_points = list()
         self.unreach_list = list()
         self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 1000)
         self.decoder = ImpactDecoder.EthDecoder()
+        self.ip_decoder = ImpactDecoder.IPDecoder()
+        self.ip_icmp_decoder = ImpactDecoder.IPDecoderForICMP()
         self.mac_set = set([self.mac])
         for d in self.devices:
             if len(d.mac):
@@ -118,20 +120,34 @@ class Dispatcher(object):
         # send raw frame
         self.pcapy_object.sendpacket(reply_eth.get_packet())
 
-    def get_tunnel_reply(self):
-        try:
-            ip_pkt = self.packet_queue.pop()
-        except IndexError:
-            # queue empty -> no replies from remote server
+    def get_tunnel_reply(self, src_ip):
+        if src_ip not in self.packet_queue.keys():
+            # remote host does not exist in dictionary -> no replies from remote server
             return None
-        proto = ip_pkt.get_ip_p()
+        queue = self.packet_queue[src_ip]
+        try:
+            tun_pkt = queue.pop()
+        except IndexError:
+            # queue empty
+            del self.packet_queue[src_ip]
+            return None
+        proto = tun_pkt.get_ip_p()
         if proto == 4:
             # ipip
-            reply_ip = ip_pkt.child()
+            ip_pkt = tun_pkt.child()
+            inner_ip = ip_pkt.get_bytes()
+            try:
+                reply_ip = self.ip_decoder.decode(inner_ip)
+            except BaseException:
+                try:
+                    reply_ip = self.ip_icmp_decoder.decode(inner_ip)
+                except BaseException:
+                    logger.exception('Exception: Cannot decode packet from ipip tunnel interface.')
+                    return None
         elif proto == 47:
             # gre
             # we expect standard GRE packets, version 0
-            gre_pkt = ip_pkt.child()
+            gre_pkt = tun_pkt.child()
             gre_bytes = gre_pkt.get_bytes()
             padding = 4
             if gre_bytes[0] & 128:
@@ -141,8 +157,15 @@ class Dispatcher(object):
             if gre_bytes[0] & 16:
                 padding += 4
             inner_ip = gre_bytes[padding:]
-            decoder = ImpactDecoder.IPDecoder()
-            reply_ip = decoder.decode(inner_ip)
+            
+            try:
+                reply_ip = self.ip_decoder.decode(inner_ip)
+            except BaseException:
+                try:
+                    reply_ip = self.ip_icmp_decoder.decode(inner_ip)
+                except BaseException:
+                    logger.exception('Exception: Cannot decode packet from gre tunnel interface')
+                    return None
 
         return reply_ip
 
@@ -153,7 +176,7 @@ class Dispatcher(object):
         try:
             eth = self.decoder.decode(pkt)
         except BaseException:
-            logger.exception('Exception: Cannot decode packet')
+            logger.exception('Exception: Cannot decode incoming packet')
             return None
         eth_type = eth.get_ether_type()
         eth_src = eth.as_eth_addr(eth.get_ether_shost())
@@ -183,7 +206,10 @@ class Dispatcher(object):
         ip_tunnels = [str(t[1]) for t in self.tunnels]
         if ip_src in ip_tunnels:
             if ip_proto in [4, 47]:
-                self.packet_queue.append(ip)
+                addr = ipaddress.ip_address(ip_src)
+                if addr not in self.packet_queue.keys():
+                    self.packet_queue[addr] = deque()
+                self.packet_queue[addr].append(ip)
                 return
             else:
                 # we assume that the remote server is a honeypot, therefore no packet should come
@@ -232,12 +258,19 @@ class Dispatcher(object):
         # recalculate checksum
         ip.auto_checksum = 1
         p = ip.get_packet()
-        d = ImpactDecoder.IPDecoder()
-        i = d.decode(p)
-        valid_checksum = i.get_ip_sum()
-        if checksum != valid_checksum:
-            logger.info('Invalid checksum in IP header, dropping packet.')
-            return
+        i = None
+        try:
+            i = self.ip_decoder.decode(p)
+        except BaseException:
+            try:
+                i = self.ip_icmp_decoder.decode(p)
+            except BaseException:
+                logger.exception('Exception: Cannot decode constructed packet. Ignoring checksum verification.')
+        if i is not None:
+            valid_checksum = i.get_ip_sum()
+            if checksum != valid_checksum:
+                logger.info('Invalid checksum in IP header, dropping packet.')
+                return
 
         # unreachables in network
         for subnet in self.unreach_list:
