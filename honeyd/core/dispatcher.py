@@ -274,11 +274,17 @@ class Dispatcher(object):
 
         # unreachables in network
         for subnet in self.unreach_list:
-            if ipaddress.ip_address(ip_src) in ipaddress.ip_network(subnet):
+            if ipaddress.ip_address(ip_src) in ipaddress.ip_network(subnet) and len(self.entry_points):
+                entry_ip = None
+                try:
+                    entry_ip = self.entry_points[0].ip
+                except AttributeError, IndexError:
+                    logger.exception('Exception: No entry point exists in configuration.')
+                    return
                 self.icmp_reply(
                     eth_dst,
                     eth_src,
-                    self.entry_points[0].ip,
+                    entry_ip,
                     ip_src,
                     ImpactPacket.ICMP.ICMP_UNREACH,
                     ImpactPacket.ICMP.ICMP_UNREACH_FILTERPROHIB)
@@ -318,12 +324,18 @@ class Dispatcher(object):
                 if ipaddress.ip_address(ip_dst) in ipaddress.ip_network(route.subnet):
                     target_router = route
                     break
-        if target_router is None:
+        if target_router is None and len(self.entry_points):
             # packet destination ip not in unreachables, connections or links
+            entry_ip = None
+            try:
+                entry_ip = self.entry_points[0].ip
+            except AttributeError, IndexError:
+                logger.exception('Exception: No entry point exists in configuration.')
+                return
             self.icmp_reply(
                 eth_dst,
                 eth_src,
-                self.entry_points[0].ip,
+                entry_ip,
                 ip_src,
                 ImpactPacket.ICMP.ICMP_UNREACH,
                 ImpactPacket.ICMP.ICMP_UNREACH_HOST_UNKNOWN)
@@ -341,7 +353,7 @@ class Dispatcher(object):
 
                 # loss and latency calculation
                 drop_threshold = 1.0
-                for loss in attributes['loss']:
+                for loss in attributes['loss'].values():
                     if loss > 100:
                         loss = 100
                     elif loss < 0:
@@ -351,7 +363,7 @@ class Dispatcher(object):
                 if drop > drop_threshold:
                     return
 
-                latency = sum(attributes['latency'])
+                latency = sum(attributes['latency'].values())
 
                 # check reachability according to ttl
                 if len(path) > ip_ttl:

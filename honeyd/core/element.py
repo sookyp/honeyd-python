@@ -161,6 +161,8 @@ class Device(object):
                                     service[2], shell=True, stdin=gevent.subprocess.PIPE, stdout=gevent.subprocess.PIPE, stderr=None)
                                 try:
                                     output, error = script.communicate(input=ip_packet.get_packet(), timeout=10)
+                                    if not len(output):
+                                        return None
                                     try:
                                         reply = self.decoder.decode(output)
                                     except BaseException:
@@ -171,23 +173,23 @@ class Device(object):
                                                 'Exception: Cannot decode packet from script.')
                                             return None
 
-                                    """
+                                    # TODO: clean up this section
                                     inner_packet = reply.child()
-
+                                    # TCP
                                     if reply.get_ip_p() == 6:
                                         inner_packet.set_th_sport(port_number)
                                         packet = ip_packet.child()
                                         inner_packet.set_th_dport(packet.get_th_sport())
+                                        inner_packet.set_th_seq(self.get_tcp_seq())
                                         inner_packet.calculate_checksum()
                                         reply.contains(inner_packet)
-
+                                    # UDP
                                     elif reply.get_ip_p() == 17:
                                         inner_packet.set_uh_sport(port_number)
                                         packet = ip_packet.child()
                                         inner_packet.set_uh_dport(packet.get_uh_sport())
                                         inner_packet.calculate_checksum()
                                         reply.contains(inner_packet)
-                                    """
 
                                     reply.set_ip_id(self.get_ip_id())
                                     reply.set_ip_src(ip_packet.get_ip_dst())
@@ -197,13 +199,16 @@ class Device(object):
                                 except gevent.subprocess.TimeoutExpired:
                                     logger.exception('Exception: script timeout expired.')
                                     script.kill()
+                                    return None
                                 except BaseException:
                                     logger.exception('Exception: script subprocess error.')
                                     script.kill()
+                                    return None
 
                         except Exception as ex:
                             # log exception
                             logger.exception('Exception: Device %s with issue: %s', self.name, ex)
+                            return None
 
                         if reply is not None:
                             reply_eth = ImpactPacket.Ethernet()

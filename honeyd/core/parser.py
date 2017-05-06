@@ -95,8 +95,8 @@ class Parser(object):
                 if match is not None:
                     personality.mac_oui = match.group(1)
             else:
-                logger.warning('No MAC OUI found for given vendors. Personality: %s', personality.fp_name)
-                logger.debug('Generating random MAC OUI for personalities %s', personality.fp_name)
+                logger.warning('Using random generated MAC address for personality: %s', personality.fp_name)
+                logger.debug('No MAC OUI found for given vendors. Generating random MAC OUI for personalities %s', personality.fp_name)
                 personality.mac_oui = hex(random.randrange(16**6))[2:]
 
     def close_files(self):

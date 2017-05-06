@@ -5,7 +5,7 @@
 <personality>4.3BSD</personality>
 <action tcp="open" udp="closed" icmp="open"/>
 <service_list>
-<service protocol="tcp" port="22" execute="proxy 10.0.2.12:gre"/>
+<service protocol="tcp" port="22" execute="open"/>
 <service protocol="tcp" port="1024" execute="closed"/>
 <service protocol="tcp" port="3" execute="filtered"/>
 <service protocol="tcp" port="5" execute="filtered"/>
@@ -14,8 +14,8 @@
 <service protocol="udp" port="505" execute="filtered"/>
 </service_list>
 <bind_list>
-<bind ip="10.0.2.100"/>
-<bind ip="10.0.2.101"/>
+<bind ip="10.66.10.100"/>
+<bind ip="10.66.11.100"/>
 </bind_list>
 </device>
 <device>
@@ -23,22 +23,37 @@
 <personality>Cisco 1700 router</personality>
 <action tcp="open" udp="closed" icmp="open"/>
 <service_list>
+<service protocol="tcp" port="22" execute="closed"/>
+<service protocol="tcp" port="1024" execute="closed"/>
+<service protocol="tcp" port="3" execute="filtered"/>
+<service protocol="tcp" port="5" execute="filtered"/>
 </service_list>
 <bind_list>
-<bind ip="10.0.2.200"/>
-<bind ip="10.0.2.201"/>
-<bind ip="10.0.2.202"/>
-<bind ip="10.0.2.203"/>
+<bind ip="10.66.1.1"/>
+<bind ip="10.66.2.1"/>
+<bind ip="10.66.2.2"/>
+<bind ip="10.66.3.1"/>
+<bind ip="10.66.3.2"/>
+<bind ip="10.66.10.1"/>
+<bind ip="10.66.11.1"/>
 </bind_list>
 </device>
 </device_information>
 <routing_information>
-<router ip="10.0.2.200" subnet="10.0.0.0/16" entry="true">
-<connect>10.0.2.201</connect>
-<link>10.0.0.0/24</link>
+<router ip="10.66.1.1" subnet="10.66.0.0/16" entry="true">
+<connect>10.66.2.2</connect>
+<connect>10.66.3.2</connect>
+<link>10.66.3.0/24</link>
+<link>10.66.2.0/24</link>
+<link>10.66.1.0/24</link>
 </router>
-<router ip="10.0.2.201" subnet="10.0.0.0/16" entry="false">
-<link>10.0.0.0/24</link>
+<router ip="10.66.2.2" subnet="10.66.0.0/16" entry="false">
+<link>10.66.11.0/24</link>
+<link>10.66.2.0/24</link>
+</router>
+<router ip="10.66.3.2" subnet="10.66.0.0/16" entry="false">
+<link>10.66.10.0/24</link>
+<link>10.66.3.0/24</link>
 </router>
 </routing_information>
 <external></external>

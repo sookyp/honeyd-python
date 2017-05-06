@@ -96,14 +96,14 @@ class Builder(object):
                 # ethernet
                 ethernet = entry.xpath('./ethernet/text()')
                 if len(ethernet):
-                    # check for valid mac address format
+                    # extract for valid mac address format
                     match = re.match('((?:[0-9a-fA-F]{2}:){5}(?:[0-9a-fA-F]){2})', ethernet[0])
                     if match is not None:
                         ethernet = match.group(1)
                         logger.debug('Using defined MAC address %s for device %s', ethernet, name)
                     else:
                         # treat as vendor list
-                        vendors = ethernet[0].split(',')
+                        vendors = [e.strip() for e in ethernet[0].split(',')]
                         personality_parser.get_mac_oui(personality, vendor_list=vendors)
                         addr = personality.mac_oui + hex(random.randrange(16**6))[2:]
                         ethernet = ':'.join(addr[i:i + 2] for i in range(0, len(addr), 2))
@@ -251,13 +251,21 @@ class Builder(object):
 
                 latency = entry.xpath('./@latency')
                 if len(latency):
-                    latency = latency[0]
+                    try:
+                        latency = int(latency[0], 16)
+                    except BaseException:
+                        logger.exception('Exception: Invalid latency value given %s', latency[0])
+                        latency = 0
                 else:
                     latency = 0
 
                 loss = entry.xpath('./@loss')
                 if len(loss):
-                    loss = loss[0]
+                    try:
+                        loss = int(loss[0], 16)
+                    except BaseException:
+                        logger.exception('Exception: Invalid loss value given %s', loss[0])
+                        loss = 0
                 else:
                     loss = 0
 
