@@ -10,6 +10,9 @@ import ipaddress
 import struct
 import array
 
+from requests import post
+from json import dumps
+
 from collections import deque
 from impacket import ImpactPacket, ImpactDecoder
 
@@ -243,7 +246,7 @@ class Dispatcher(object):
         attack_event.port_src = proto_src
         attack_event.port_dst = proto_dst
         attack_event.proto = ip_proto
-        attack_event.raw_pkt = pkt
+        attack_event.raw_pkt = repr(pkt)
         attack_event = attack_event.event_dict()
 
         logger.info('SRC=%s:%s (%s) -> DST=%s:%s (%s) TYPE=%s PROTO=%s TTL=%s', ip_src,
@@ -252,6 +255,8 @@ class Dispatcher(object):
             self.hpfeeds.publish(attack_event)
         if self.dblogger.enabled:
             self.dblogger.insert(attack_event)
+
+        post('http://localhost:8080/post', json=dumps(attack_event))
 
         # save original checksum
         checksum = ip.get_ip_sum()

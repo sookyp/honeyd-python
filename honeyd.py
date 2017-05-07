@@ -165,6 +165,9 @@ def unhandled_exception(greenlet, expected_args):
     if arp_daemon:
         logging.info('Terminating arpd daemon.')
         arp_daemon.kill()
+    if web_server:
+        logging.info('Terminating web server.')
+        web_server.kill()
     sys.exit(1)
 
 
@@ -189,6 +192,16 @@ def main():
     hpfeeds = HPFeedsLogger(args.config)
     dblogger = DatabaseLogger(args.config)
 
+    try:
+        logging.info('Starting honeyd web server on localhost:8080')
+        DEVNULL = open(os.devnull, 'w')
+        server_path = os.path.join(package_directory, 'utilities/web_server.py')
+        web_server = gevent.subprocess.Popen(['python2.7', server_path], stdout=DEVNULL, stderr=gevent.subprocess.STDOUT)
+        # web_server = gevent.subprocess.Popen(['python2.7', server_path])
+    except Exception as ex:
+        logger.error('Cannot start honeyd web server: %s', ex)
+        sys.exit(1)
+
     network, default, devices, routes, externals, tunnels = Builder().build_network(
         package_directory, args.config, args.network, args.os_fingerprint, args.mac_prefix)
 
@@ -207,7 +220,6 @@ def main():
 
     if len(cidr_address):
         try:
-            # call(['arpd', arpd_interfaces])
             logger.info('Starting farpd daemon with flags: -d | -i %s | %s', args.interface, cidr_address)
             DEVNULL = open(os.devnull, 'w')
             arp_daemon = gevent.subprocess.Popen(['farpd',
@@ -282,6 +294,9 @@ def main():
     if arp_daemon:
         logging.info('Terminating arpd daemon.')
         arp_daemon.kill()
+    if web_server:
+        logging.info('Terminating web server.')
+        web_server.kill()
 
 
 if __name__ == "__main__":

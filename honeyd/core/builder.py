@@ -252,7 +252,7 @@ class Builder(object):
                 latency = entry.xpath('./@latency')
                 if len(latency):
                     try:
-                        latency = int(latency[0], 16)
+                        latency = int(latency[0], 10)
                     except BaseException:
                         logger.exception('Exception: Invalid latency value given %s', latency[0])
                         latency = 0
@@ -262,7 +262,7 @@ class Builder(object):
                 loss = entry.xpath('./@loss')
                 if len(loss):
                     try:
-                        loss = int(loss[0], 16)
+                        loss = int(loss[0], 10)
                     except BaseException:
                         logger.exception('Exception: Invalid loss value given %s', loss[0])
                         loss = 0
