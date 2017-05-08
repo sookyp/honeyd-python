@@ -158,7 +158,7 @@ def setup_mac_prefix(file):
 
 
 def unhandled_exception(greenlet, expected_args):
-    tunnels, config, arp_daemon = expected_args
+    tunnels, config, arp_daemon, web_server = expected_args
     logger.error('Error: Stopping honeypot: %s is dead: %s', greenlet, greenlet.exception)
     logger.info('Closing tunnel interfaces: %s', tunnels)
     Builder().teardown_tunnels(tunnels, package_directory, config)
@@ -192,6 +192,7 @@ def main():
     hpfeeds = HPFeedsLogger(args.config)
     dblogger = DatabaseLogger(args.config)
 
+    # TODO: add configuration for ports
     try:
         logging.info('Starting honeyd web server on localhost:8080')
         DEVNULL = open(os.devnull, 'w')
@@ -263,7 +264,7 @@ def main():
     # spawn dispatcher for interface
     greenlet = gevent.spawn(Dispatcher, args.interface, network, default,
                             (devices, routes, externals), (hpfeeds, dblogger), tunnels)
-    greenlet.link_exception(lambda: unhandled_exception(greenlet, (tunnels, args.config, arp_daemon)))
+    greenlet.link_exception(lambda: unhandled_exception(greenlet, (tunnels, args.config, arp_daemon, web_server)))
 
     # FIX: we might not be able to drop privileges as we are using raw sockets
     """

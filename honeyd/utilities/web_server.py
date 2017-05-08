@@ -4,9 +4,14 @@ from gevent import monkey; monkey.patch_all()
 from bottle import run, get, route, redirect, error, request, static_file, template
 from json import loads
 
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
+
 """
     In order to be able to inject HTML code, we disable character escaping - XSS vulnerable
 """
+# TODO: rely on POST only if there is no database support
 # TODO: remove globals
 global_cnt=0
 global_src_ip=dict()
@@ -68,6 +73,7 @@ def index():
 # statistics page
 @get('/statistics.html')
 def statistics():
+    # TODO: implement database support
     global global_cnt
     global global_src_ip
     global global_dst_ip
@@ -138,8 +144,22 @@ def statistics():
 # charts page
 @get('/charts.html')
 def charts():
-    test = "Not implemented."
-    return template('honeyd/utilities/http/index.html', data=test)
+    # really basic pie chart, distribution of protocols - concept for placing images 
+    # TODO: implement useful statistics
+    global global_proto
+    fig = plt.figure()
+    labels = global_proto.keys()
+    sizes = global_proto.values()
+    plt.pie(sizes, labels=labels)
+    plt.axis('equal')
+    # plt.plot(range(10))
+    figdata = BytesIO()
+    fig.savefig(figdata, format='png')
+    content = """\
+            <img src="data:image/png;base64,
+            """ + base64.b64encode(figdata.getvalue()).decode('utf-8') + """\
+                    "></img>"""
+    return template('honeyd/utilities/http/index.html', data=content)
 
 # TODO: catch exceptions -> KeyboardInterrupt, other possible values
 run(host='localhost', port=8080, server='gevent')

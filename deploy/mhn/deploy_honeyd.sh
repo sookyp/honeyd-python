@@ -34,13 +34,14 @@ if  [ ! -f /usr/local/bin/pip2.7 ]; then
     /usr/local/bin/pip2.7 install virtualenv
 fi
 
+# python-tk | tkinter, tk-devel are required for graph and chart generation for honeyd web server statistics
 # install requirements
 if [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
     yum -y update
-    yum -y install git farpd mysql-server mysql-devel python-devel python-setuptools MYSQLdb-python libpcap-dev
+    yum -y install git farpd mysql-server mysql-devel python-devel python-setuptools MYSQLdb-python libpcap-dev tkinter tk-devel
 elif [ -f /etc/debian-version ] || [ -f /etc/lsb-release ]; then
     apt-get update
-    apt-get -y install git farpd mysql-server libmysqlclient-dev python-mysqldb libpcap-dev
+    apt-get -y install git farpd mysql-server libmysqlclient-dev python-mysqldb libpcap-dev python-tk
 else
     echo -e "ERROR: Not supported OS\nExiting..."
     exit -1

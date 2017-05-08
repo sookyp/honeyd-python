@@ -9,3 +9,5 @@ hpfeeds
 pcapy
 requests
 bottle
+matplotlib
+numpy
