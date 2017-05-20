@@ -1,14 +1,18 @@
 #!/usr/bin/env python
-
+"""Tcp.py defines the TCP behavior"""
+import logging
 import random
 from binascii import crc32
 from struct import pack
 from impacket import ImpactPacket
 
+logger = logging.getLogger(__name__)
 
 class TCPHandler(object):
+    """TCPHandler defines behavior opened, closed, blocked and filtered ports"""
 
     def opened(self, packet, path, personality, **kwargs):
+        """Function defines open port behavior"""
         callback_ipid = kwargs.get('cb_ipid', None)
         callback_tcpseq = kwargs.get('cb_tcpseq', None)
         callback_tcpts = kwargs.get('cb_tcpts', None)
@@ -129,12 +133,13 @@ class TCPHandler(object):
             return None
 
     def closed(self, packet, path, personality, **kwargs):
+        """Function defines closed port behavior"""
         callback_cipid = kwargs.get('cb_cipid', None)
         callback_tcpseq = kwargs.get('cb_tcpseq', None)
         callback_tcpts = kwargs.get('cb_tcpts', None)
 
         tcp_pkt = packet.child()
-        tcp_win = tcp_pkt.get_th_win()
+        # tcp_win = tcp_pkt.get_th_win()
 
         if tcp_pkt.get_th_flags() == 2:  # (SYN)2
             # if (not packet.get_ip_df()) and tcp_win == 31337:
@@ -187,6 +192,7 @@ class TCPHandler(object):
         return reply_ip
 
     def filtered(self, packet, path, personality, **kwargs):
+        """Function defines filtered port behavior - filtered is defined according to nmap"""
         callback_ipid = kwargs.get('cb_ipid', None)
         callback_icmpid = kwargs.get('cb_icmpid', None)
 
@@ -216,9 +222,19 @@ class TCPHandler(object):
         return reply_ip
 
     def blocked(self, packet, path, personality, **kwargs):
+        """Function defines blocked port behavior - no response is created for blocked ports"""
         return None
 
     def build_reply(self, packet, path, personality, cb_ip_id, cb_tcp_seq, cb_tcp_ts):
+        """Function creates a reply according to the personality of the device
+        Args:
+            packet : intercepted packet
+            path : length of path in the virtual network
+            personality : personality description of the device
+            cb_ipid, cb_tcp_seq, cb_tcp_ts : callback functions for IP ID, TCP SEQ and TCP TS generation
+        Return
+            reply ip packet
+        """
         # fingerprint fields R, DF, T, TG, W, S, A, F, O, RD, Q & CC
 
         # tcp packet
@@ -267,8 +283,11 @@ class TCPHandler(object):
             except BaseException:
                 raise Exception('Unsupported Ti:TG=%s', personality['TG'])
 
-        delta_ttl = len(path)
-        reply_ip.set_ip_ttl(ttl - delta_ttl)
+        delta_ttl = ttl - path
+        if delta_ttl < 1:
+            logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+            return None
+        reply_ip.set_ip_ttl(delta_ttl)
 
         # check W
         win = 0
@@ -386,8 +405,8 @@ class TCPHandler(object):
                 if crc != 0:
                     data = 'TCP Port is closed\x00'
                     data += self.compensate(data, crc)
-                    data = ImpactPacket.Data(data)
-                    reply_tcp.contains(data)
+                    pkt_data = ImpactPacket.Data(data)
+                    reply_tcp.contains(pkt_data)
             except BaseException:
                 raise Exception('Unsupported Ti:RD=%s', personality['RD'])
 
@@ -396,6 +415,17 @@ class TCPHandler(object):
         return reply_ip
 
     def build_rst(self, packet, path, personality, win, ip_id, tcp_seq):
+        """Function creates a response RST packet according to personality of the device
+        Args:
+            packet : intercepted packet
+            path : length of path in the virtual network
+            personality : personality description of the device
+            win : window size used in the RST packet
+            ip_id : IP ID used in the RST packet
+            tcp_seq : TCP SEQ number used in the RST packet
+        Return:
+            reply ip packet
+        """
         tcp_pkt = packet.child()
 
         # tcp packet
@@ -438,8 +468,11 @@ class TCPHandler(object):
             except BaseException:
                 raise Exception('Unsupported Ti:TG=%s', personality['TG'])
 
-        delta_ttl = len(path)
-        reply_ip.set_ip_ttl(ttl - delta_ttl)
+        delta_ttl = ttl - path
+        if delta_ttl < 1:
+            logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+            return None
+        reply_ip.set_ip_ttl(delta_ttl)
         reply_ip.auto_checksum = 1
         reply_ip.contains(reply_tcp)
 
@@ -448,7 +481,7 @@ class TCPHandler(object):
     # Reversing CRC according to:
     # https://github.com/StalkR/misc/blob/master/crypto/crc32.py
     # https://github.com/CoreSecurity/impacket/blob/master/examples/uncrc32.py
-    def compensate(b, w):
+    def compensate(self, b, w):
         w ^= 0xffffffff
         nb = 0
         for i in range(32):

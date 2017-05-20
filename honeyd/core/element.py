@@ -1,26 +1,18 @@
 #!/usr/bin/env python
-
+"""Element.py contains network entities which build up the network topology, like devices, routers and external machines."""
 import logging
-
+import sys
 import re
 import gevent
 import netifaces
 import ipaddress
 from impacket import ImpactPacket, ImpactDecoder
 
-import honeyd
 from honeyd.protocols.tcp import TCPHandler
 from honeyd.protocols.udp import UDPHandler
 from honeyd.protocols.icmp import ICMPHandler
 
 logger = logging.getLogger(__name__)
-
-import sys
-
-"""
-  Contains elements which build up our network topology
-"""
-
 
 class Device(object):
     """
@@ -28,6 +20,15 @@ class Device(object):
     """
 
     def __init__(self, name, personality, ethernet, actions, services, binds):
+        """Function initializes a network device
+        Args:
+            name : name of the device
+            personality : nmap personality of the device
+            ethernet : ethernet address of the device
+            actions : default actions of the device for packets of certain protocols
+            services : detailed actions for protocols and port  numbers
+            binds : ip addresses the devices
+        """
         logger.debug('Creating device %s on IPs %s', name, binds)
         self.name = name
         self.personality = personality
@@ -37,7 +38,7 @@ class Device(object):
         except BaseException:
             logger.exception('Exception: MAC conversion for device %s failed: %s', self.name, self.mac)
             sys.exit(1)
-
+        self.ethernet = tuple(self.ethernet)
         self.action_dictionary = actions
         self.service_list = services
         self.bind_list = binds
@@ -64,25 +65,30 @@ class Device(object):
         self.ip_id_generator()
         self.tcp_isn_generator()
         self.tcp_ts_generator()
-        # have to check for ICMP with incomplete header
-        # script can return IP()/ICMP() -> see impacket bug #4870, use IPDecoderForICMP
+        # script can return IP()/ICMP() -> see impacket bug #4870
         self.decoder = ImpactDecoder.IPDecoder()
         self.decoder_icmp = ImpactDecoder.IPDecoderForICMP()
 
-    def handle_packet(self, ethernet_packet, path, target, tunnels, cb_tunnel=None):
-        """
-        Forwards packet to the appropriate protocol handler based on configuration
+    def handle_packet(self, ethernet_packet, path, event, tunnels, cb_tunnel=None):
+        """Forwards packet to the appropriate protocol handler based on configuration
+        Args:
+            ethernet_packet : intercepted packet
+            path : length of the patch in the virtual network
+            event : extracted attack-related information
+            tunnels : opened network tunnels
+            cb_tunnel : callback function for data extraction
+        Return:
+            constructed reply packet
         """
         reply = None
         ip_packet = ethernet_packet.child()
-        ip_protocol, port_number = target
         eth_dst = ethernet_packet.get_ether_shost()
 
         for protocol_name, protocol_number, protocol_class in self.protocol_mapping:
-            if ip_protocol == protocol_number:
+            if event['protocol'] == protocol_number:
                 # search for defined services
                 for service in self.service_list:
-                    if protocol_name == service[0] and port_number == service[1]:
+                    if protocol_name == service[0] and event['port_dst'] == service[1]:
                         try:
                             if service[2] == 'filtered':
                                 reply = protocol_class.filtered(
@@ -112,7 +118,7 @@ class Device(object):
                             elif service[2].startswith('proxy '):
                                 proxy_data = service[2][len('proxy '):].split(':')
                                 proxy_ip = ipaddress.ip_address(unicode(proxy_data[0]))
-                                proxy_mode = proxy_data[1]
+                                # proxy_mode = proxy_data[1]
 
                                 # find configured tunnel interface
                                 for tunnel_interface, remote_ip, tunnel_mode in tunnels:
@@ -121,7 +127,7 @@ class Device(object):
                                     if remote_ip == proxy_ip:
 
                                         # update ttl
-                                        delta_ttl = ip_packet.get_ip_ttl() - len(path)
+                                        delta_ttl = ip_packet.get_ip_ttl() - path
                                         ip_packet.set_ip_ttl(delta_ttl)
                                         ip_packet.auto_checksum = 1
 
@@ -138,7 +144,10 @@ class Device(object):
                                         reply_ip = cb_tunnel(proxy_ip)
                                         if reply_ip is None:
                                             return None
-                                        delta_ttl = reply_ip.get_ip_ttl() - len(path)
+                                        delta_ttl = reply_ip.get_ip_ttl() - path
+                                        if delta_ttl < 1:
+                                            logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+                                            return
                                         reply_ip.set_ip_ttl(delta_ttl)
                                         reply_ip.auto_checksum = 1
                                         reply_ip.set_ip_src(ip_packet.get_ip_dst())
@@ -153,12 +162,17 @@ class Device(object):
 
                                 else:
                                     logger.error('Error: No interface found for proxy IP %s', proxy_data[0])
+                                    break
                                 return None
                             else:
                                 # script is excpected to provide proper IP packet as a reply as series of
                                 # bytes through stdout
                                 script = gevent.subprocess.Popen(
-                                    service[2], shell=True, stdin=gevent.subprocess.PIPE, stdout=gevent.subprocess.PIPE, stderr=None)
+                                    service[2],
+                                    shell=True,
+                                    stdin=gevent.subprocess.PIPE,
+                                    stdout=gevent.subprocess.PIPE,
+                                    stderr=gevent.subprocess.PIPE)
                                 try:
                                     output, error = script.communicate(input=ip_packet.get_packet(), timeout=10)
                                     if not len(output):
@@ -173,24 +187,26 @@ class Device(object):
                                                 'Exception: Cannot decode packet from script.')
                                             return None
 
-                                    # TODO: clean up this section
+                                    if len(error):
+                                        logger.info('Service log: %s', error)
+
                                     inner_packet = reply.child()
                                     # TCP
                                     if reply.get_ip_p() == 6:
-                                        inner_packet.set_th_sport(port_number)
-                                        packet = ip_packet.child()
-                                        inner_packet.set_th_dport(packet.get_th_sport())
+                                        inner_packet.set_th_sport(event['port_dst'])
+                                        inner_packet.set_th_dport(event['port_src'])
                                         inner_packet.set_th_seq(self.get_tcp_seq())
                                         inner_packet.calculate_checksum()
                                         reply.contains(inner_packet)
                                     # UDP
                                     elif reply.get_ip_p() == 17:
-                                        inner_packet.set_uh_sport(port_number)
+                                        inner_packet.set_uh_sport(event['port_dst'])
                                         packet = ip_packet.child()
-                                        inner_packet.set_uh_dport(packet.get_uh_sport())
+                                        inner_packet.set_uh_dport(event['port_src'])
                                         inner_packet.calculate_checksum()
                                         reply.contains(inner_packet)
 
+                                    # IP
                                     reply.set_ip_id(self.get_ip_id())
                                     reply.set_ip_src(ip_packet.get_ip_dst())
                                     reply.set_ip_dst(ip_packet.get_ip_src())
@@ -259,7 +275,7 @@ class Device(object):
                             if remote_ip == proxy_ip:
 
                                 # update ttl
-                                delta_ttl = ip_packet.get_ip_ttl() - len(path)
+                                delta_ttl = ip_packet.get_ip_ttl() - path
                                 ip_packet.set_ip_ttl(delta_ttl)
                                 ip_packet.auto_checksum = 1
 
@@ -276,7 +292,10 @@ class Device(object):
                                 reply_ip = cb_tunnel()
                                 if reply_ip is None:
                                     return None
-                                delta_ttl = reply_ip.get_ip_ttl() - len(path)
+                                delta_ttl = reply_ip.get_ip_ttl() - path
+                                if delta_ttl < 1:
+                                    logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+                                    return
                                 reply_ip.set_ip_ttl(delta_ttl)
                                 reply_ip.auto_checksum = 1
                                 reply_ip.set_ip_src(ip_packet.get_ip_dst())
@@ -306,9 +325,8 @@ class Device(object):
                 return None
 
     def ip_id_generator(self):
-        """
-        Responsible for proper IP ID generation in outgoing packets. The numbers used are randomly selected in accordance with the nmap testing algorithm.
-        """
+        """Responsible for proper IP ID generation in outgoing packets. The numbers used are randomly selected
+        in accordance with the nmap testing algorithm."""
         # TI
         if 'TI' in self.personality.fp_seq:
             if self.personality.fp_seq['TI'] == 'Z':
@@ -387,9 +405,7 @@ class Device(object):
                 self.metadata['icmp_id'] %= 0x10000
 
     def tcp_isn_generator(self):
-        """
-        Responsible for proper TCP Initial Sequence Number generation.
-        """
+        """Responsible for proper TCP Initial Sequence Number generation."""
         avg_ppi = 0.11  # Nmap default value, average time interval per packet 150 ms = 2Hz
         delta_i = 0
         index = 0
@@ -426,12 +442,10 @@ class Device(object):
             sp = self.personality.fp_seq['SP'].split('-')
             try:
                 sp = int(sp[0], 16)
-                """
-                if len(sp) == 1:
-                    sp = int(sp[0], 16)
-                else:
-                    sp = (int(sp[0], 16) + int(sp[1], 16) ) / 2
-                """
+                # if len(sp) == 1:
+                #    sp = int(sp[0], 16)
+                #else:
+                #    sp = (int(sp[0], 16) + int(sp[1], 16) ) / 2
             except BaseException:
                 logger.exception(
                     'Exception: Device %s issue with TCP ISN generation, using value 0. Possible invalid values in configuration. Check fingerprint section SEQ:SP',
@@ -449,9 +463,7 @@ class Device(object):
             self.metadata['tcp_isn'] %= 0x100000000
 
     def tcp_ts_generator(self):
-        """
-        Responsible for proper TCP Timestamp generation
-        """
+        """Responsible for proper TCP Timestamp generation"""
         avg_ppi = 0.11  # average time interval per packet 150 ms
         if 'TS' in self.personality.fp_seq:
             if self.personality.fp_seq['TS'] in ['Z', 'U']:
@@ -469,6 +481,7 @@ class Device(object):
             self.metadata['tcp_ts'] %= 0x100000000
 
     def get_ip_id(self):
+        """Obtain next IP ID for open ports"""
         # get
         result = self.metadata['ip_id']
         # update
@@ -477,6 +490,7 @@ class Device(object):
         return result
 
     def get_cip_id(self):
+        """Obtain next IP ID for closed ports"""
         # get
         result = self.metadata['cip_id']
         # update
@@ -485,6 +499,7 @@ class Device(object):
         return result
 
     def get_icmp_id(self):
+        """Obtain next ICMP ID"""
         # get
         if self.metadata['icmp_id'] is None:
             result = self.get_ip_id()
@@ -496,6 +511,7 @@ class Device(object):
         return result
 
     def get_tcp_seq(self):
+        """Obtain next TCP SEQ number"""
         result = self.metadata['tcp_isn'] + self.metadata['tcp_isn_dev']
         self.metadata['tcp_isn_dev'] *= -1
         result = int(int(result / self.metadata['tcp_isn_gcd']) * self.metadata['tcp_isn_gcd'])
@@ -504,6 +520,7 @@ class Device(object):
         return result % 0x10000000
 
     def get_tcp_ts(self):
+        """Obtain next TCP TS number"""
         # get
         result = int(round(self.metadata['tcp_ts']))
         # update
@@ -513,11 +530,20 @@ class Device(object):
 
 
 class Route(object):
-    """
-      Defines connections between the devices on the network
-    """
+    """Defines connections between the devices on the network"""
 
     def __init__(self, ip, subnet, entry, latency, loss, connects, links, unreaches):
+        """Function initualizes a router in the network
+        Args:
+            ip : ip address of the router
+            subnet : subnet of reachable addresses
+            entry : boolean value defining if the router serves as an entry to the network
+            latency : minimal latency for the router
+            loss : packet drop rate of the router
+            connects : list of connected routers
+            links : list of ip addresses for devices that are directly reachable
+            unreaches : list of unreachable ip addresses
+        """
         self.ip = ip
         self.subnet = subnet
 
@@ -536,11 +562,14 @@ class Route(object):
 
 
 class External(object):
-    """
-      Defines bindings of external machine interfaces to virtual ips in the network
-    """
+    """Defines bindings of external machine interfaces to virtual ips in the network"""
 
     def __init__(self, ip, interface):
+        """Function initialized an external machine in the network
+        Args:
+            ip : ip address of the machine in the network
+            interface : network interface the machine is connected to
+        """
         self.ip = ip
         if interface not in netifaces.interfaces():
             logger.error('Error: No valid interface detected for external %s : %s.', ip, interface)
@@ -548,19 +577,19 @@ class External(object):
         self.interface = interface
 
     def handle_packet(self, ethernet_packet, path, target, tunnels, cb_tunnel=None):
+        """Function conveys traffic to the interface the external machine is connected to
+        Args:
+            ethernet_packet : intercepted packet
+            path : length of the patch in the virtual network
+            event : extracted attack-related information
+            tunnels : opened network tunnels
+            cb_tunnel : callback function for data extraction
+        """
         # update ttl
         ip_packet = ethernet_packet.child()
-        delta_ttl = ip_packet.get_ip_ttl() - len(path)
+        delta_ttl = ip_packet.get_ip_ttl() - path
         ip_packet.set_ip_ttl(delta_ttl)
         ip_packet.auto_checksum = 1
-        # encapsulate into original ethernet frame
-        # eth_frame = ImpactPacket.Ethernet()
-        # eth_frame.set_ether_type(0x800)
-        # eth_frame.set_ether_shost(ethernet_packet.get_ether_shost())
-        # eth_frame.set_ether_dhost(ethernet_packet.get_ether_dhost())
-        # eth_frame.contains(ip_packet)
         s = gevent.socket.socket(gevent.socket.AF_PACKET, gevent.socket.SOCK_RAW)
-        # s.bind((self.interface, 0))
-        # s.send(eth_frame.get_packet())
         s.sendto(ip_packet.get_packet(), (self.interface, 0x0800))
         return None

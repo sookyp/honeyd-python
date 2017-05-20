@@ -1,18 +1,17 @@
 #!/usr/bin/env python
-
-import gevent.monkey
-gevent.monkey.patch_all()
-
+"""Honeyd.py is the main script that controls the execution of the honeypot. This script is responsible for overseeing
+the setup process and invoking the required modules for certain functionalities."""
 import sys
 import os
-import pwd
-import grp
 import logging
 import argparse
-import gevent
 import urllib
-import netifaces
 import re
+import netifaces
+
+import gevent
+from gevent import monkey
+monkey.patch_all()
 
 import honeyd
 from honeyd.core.builder import Builder
@@ -20,14 +19,12 @@ from honeyd.core.dispatcher import Dispatcher
 from honeyd.loggers.hpfeeds_logger import HPFeedsLogger
 from honeyd.loggers.mysqldb_logger import DatabaseLogger
 
-# import threading
-# from honeyd.core.listener import Listener
-
 logger = logging.getLogger()
 package_directory = os.path.dirname(os.path.abspath(honeyd.__file__))
 
 
 def logo():
+    """Function prints out logo and version number."""
     print """\
  _                     _
 | |_ ___ ___ ___ _ _ _| |
@@ -35,16 +32,20 @@ def logo():
 |_|_|___|_|_|___|_  |___|
                 |___|
     """
-    print "Author: Peter Sooky <448291@mail.muni.cz>"
-    print('Honeyd-python {0}'.format(honeyd.__version__))
+    print 'Author: Peter Sooky <448291@mail.muni.cz>'
+    print 'Honeyd-python {0}'.format(honeyd.__version__)
 
 
 def setup_logging(log_file, verbose):
+    """Function configures console and file loggers.
+    Args:
+        log_file : name of the logfile
+        verbose : boolean value determining use of verbose logging
+    """
     if verbose:
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
-        # sys.tracebacklimit = 0
 
     logger.setLevel(log_level)
 
@@ -62,64 +63,31 @@ def setup_logging(log_file, verbose):
     root_logger.addHandler(console_log)
     root_logger.addHandler(file_log)
 
-"""
-def drop_privileges(uid_name=None, gid_name=None):
-    if uid_name is None:
-        uid_name = 'nobody'
-    try:
-        wanted_user = pwd.getpwnam(uid_name)
-    except KeyError:
-        logger.exception(
-            'Cannot drop privileges: user "%s" does not exist.',
-            uid_name)
-        sys.exit(1)
-    if gid_name is None:
-        gid_name = grp.getgrgid(wanted_user.pw_gid).gr_name
-    try:
-        wanted_group = grp.getgrnam(gid_name)
-    except KeyError:
-        logger.exception(
-            'Cannot drop privileges: group "%s" does not exist.',
-            gid_name)
-        sys.exit(1)
-    logger.debug('Attempting to drop privileges to "%s:%s"',
-                 wanted_user.pw_name, wanted_group.gr_name)
-    try:
-        os.setgid(wanted_group.gr_gid)
-    except OSError:
-        logger.exception(
-            'Cannot drop privileges: set GID operation not permitted.'
-        )
-    try:
-        os.setuid(wanted_user.pw_uid)
-    except OSError:
-        logger.exception(
-            'Cannot drop privileges: set UID operation not permitted'
-            )
-    new_user = pwd.getpwuid(os.getuid())
-    new_group = grp.getgrgid(os.getgid())
-    logger.info('Privileges set, running as "%s:%s"',
-                new_user.pw_name, new_group.gr_name)
-"""
 
 def parse_arguments():
+    """Function handles commandline argument logging
+    Return:
+        args : structure containing argument names and values
+    """
     parser = argparse.ArgumentParser(description='Honeyd')
-    parser.add_argument("--version", action="store_true", default=False, help="Print Honeyd version and exit")
-    parser.add_argument("-v", "--verbose", action="store_true", default=False, help="Enables logging of debug messages")
-    parser.add_argument("-l", "--logfile", help="Set logfile path and name", default="honeyd.log")
-    parser.add_argument("-n", "--network", help="Set configuration file path and name",
-                        default=os.path.join(package_directory, "templates/network.xml"))
-    parser.add_argument("-c", "--config", help="Set database and hpfeeds configuration file",
-                        default=os.path.join(package_directory, "templates/honeyd.cfg"))
-    # parser.add_argument("-u", "--uid", help="Set the user id Honeyd should run as", default=None)
-    # parser.add_argument("-g", "--gid", help="Set the group id Honeyd should run as", default=None)
-    parser.add_argument("-i", "--interface", help="Listen on interface", default=None)
-    parser.add_argument("-a", "--address", action="append", help="Reply to ARP requests matching address", default=[])
-    parser.add_argument("-o", "--os-fingerprint", help="Set nmap-style fingerprints file location",
-                        default=os.path.join(package_directory, "templates/nmap-os-db"))
-    parser.add_argument("-m", "--mac-prefix", help="Set nmap-mac-prefixes file location",
-                        default=os.path.join(package_directory, "templates/nmap-mac-prefixes"))
-
+    parser.add_argument(
+        "--version", action="store_true", default=False, help="Print Honeyd version and exit")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", default=False, help="Enables logging of debug messages")
+    parser.add_argument(
+        "-l", "--logfile", help="Set logfile path and name", default="honeyd.log")
+    parser.add_argument(
+        "-n", "--network", help="Set configuration file path and name", default=os.path.join(package_directory, "templates/network.xml"))
+    parser.add_argument(
+        "-c", "--config", help="Set database and hpfeeds configuration file", default=os.path.join(package_directory, "templates/honeyd.cfg"))
+    parser.add_argument(
+        "-i", "--interface", help="Listen on interface", default=None)
+    parser.add_argument(
+        "-a", "--address", action="append", help="Reply to ARP requests matching address", default=[])
+    parser.add_argument(
+        "-o", "--os-fingerprint", help="Set nmap-style fingerprints file location", default=os.path.join(package_directory, "templates/nmap-os-db"))
+    parser.add_argument(
+        "-m", "--mac-prefix", help="Set nmap-mac-prefixes file location", default=os.path.join(package_directory, "templates/nmap-mac-prefixes"))
     args = parser.parse_args()
 
     if args.version:
@@ -129,8 +97,12 @@ def parse_arguments():
     return args
 
 
-def setup_os_fingerprints(file):
-    if not os.path.isfile(file):
+def setup_os_fingerprints(os_file):
+    """Function downloads nmap-os-db from internet if not found at given location
+    Args:
+        os_file : location of nmap-os-db file
+    """
+    if not os.path.isfile(os_file):
         try:
             logger.info('Retrieving Nmap fingerprint database')
             urllib.urlretrieve(
@@ -138,13 +110,17 @@ def setup_os_fingerprints(file):
                 os.path.join(
                     package_directory,
                     "templates/nmap-os-db"))
-        except ContentTooShortError:
+        except urllib.ContentTooShortError:
             logger.exception('Connection interupted: nmap-os-db retrieval failed')
             sys.exit(1)
 
 
-def setup_mac_prefix(file):
-    if not os.path.isfile(file):
+def setup_mac_prefix(mac_file):
+    """Function downloads nmap-mac-prefixes from internet if not found at given location
+    Args:
+        mac_file : location of nmap-mac_prefixes file
+    """
+    if not os.path.isfile(mac_file):
         try:
             logger.info('Retrieving Nmap MAC prefix database')
             urllib.urlretrieve(
@@ -152,12 +128,17 @@ def setup_mac_prefix(file):
                 os.path.join(
                     package_directory,
                     "templates/nmap-mac-prefixes"))
-        except ContentTooShortError:
+        except urllib.ContentTooShortError:
             logger.exception('Connection interupted: nmap-mac-prefixes retrieval failed')
             sys.exit(1)
 
 
 def unhandled_exception(greenlet, expected_args):
+    """Function cleans up after a greenlet dies unexpectedly
+    Args:
+        greenlet : object that died
+        expected_args : list of arguments required for clean up
+    """
     tunnels, config, arp_daemon, web_server = expected_args
     logger.error('Error: Stopping honeypot: %s is dead: %s', greenlet, greenlet.exception)
     logger.info('Closing tunnel interfaces: %s', tunnels)
@@ -172,6 +153,7 @@ def unhandled_exception(greenlet, expected_args):
 
 
 def main():
+    """Function controlling honeypot execution"""
     args = parse_arguments()
 
     setup_logging(args.logfile, args.verbose)
@@ -188,17 +170,18 @@ def main():
 
     if not os.path.isfile(args.config):
         args.config = os.path.join(package_directory, "templates/honeyd.cfg")
-        logger.warning('No logging configuration file found in directory, using default configuration: %s', args.config)
+        logger.warning(
+            'No logging configuration file found in directory, using default configuration: %s',
+            args.config)
     hpfeeds = HPFeedsLogger(args.config)
     dblogger = DatabaseLogger(args.config)
 
-    # TODO: add configuration for ports
     try:
         logging.info('Starting honeyd web server on localhost:8080')
-        DEVNULL = open(os.devnull, 'w')
+        devnull = open(os.devnull, 'w')
         server_path = os.path.join(package_directory, 'utilities/web_server.py')
-        web_server = gevent.subprocess.Popen(['python2.7', server_path], stdout=DEVNULL, stderr=gevent.subprocess.STDOUT)
-        # web_server = gevent.subprocess.Popen(['python2.7', server_path])
+        web_server = gevent.subprocess.Popen(
+            ['python2.7', server_path], stdout=devnull, stderr=gevent.subprocess.STDOUT)
     except Exception as ex:
         logger.error('Cannot start honeyd web server: %s', ex)
         sys.exit(1)
@@ -207,13 +190,15 @@ def main():
         package_directory, args.config, args.network, args.os_fingerprint, args.mac_prefix)
 
     if args.interface not in netifaces.interfaces():
-        logger.error('Error: No valid interface detected for %s, ignoring configuration', args.interface)
+        logger.error(
+            'Error: No valid interface detected for %s, ignoring configuration',
+            args.interface)
         sys.exit(1)
 
-    # filter out non-CIDR notation
     cidr_address = list()
+    # filter IPv4 address | IPv4 address range | IPv4 subnet
     cidr_pattern = re.compile(
-        '((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?')
+        r'((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(([/](3[01]|[0-2]?[0-9]))|([-]((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)))?')
     for address in args.address:
         cidr = cidr_pattern.match(address)
         if cidr is not None:
@@ -221,14 +206,17 @@ def main():
 
     if len(cidr_address):
         try:
-            logger.info('Starting farpd daemon with flags: -d | -i %s | %s', args.interface, cidr_address)
-            DEVNULL = open(os.devnull, 'w')
+            logger.info(
+                'Starting farpd daemon with flags: -d | -i %s | %s',
+                args.interface,
+                cidr_address)
+            devnull = open(os.devnull, 'w')
             arp_daemon = gevent.subprocess.Popen(['farpd',
                                                   '-d',
                                                   '-i',
                                                   args.interface,
                                                   ' '.join(cidr_address)],
-                                                 stdout=DEVNULL,
+                                                 stdout=devnull,
                                                  stderr=gevent.subprocess.STDOUT)
             gevent.sleep(1)
         except Exception as ex:
@@ -239,57 +227,20 @@ def main():
                 ex)
             sys.exit(1)
 
-    # in case we want multithreaded listening -> we not need it currently
-    # we are required to use processes to bypass the GIL
-    # FIX: find some way to use threads
-    """
-    listener = list()
-    for tunnel in tunnels:
-        # spawn listener for each tunnel
-        # l = Listener(tunnel)
-        try:
-            # l = threading.Thread(target=Listener, args=(tunnel, ))
-            q = multiprocessing.Queue()
-            l = Listener(tunnel, q)
-            l.daemon = True
-            l.start()
-            # l.run()
-        except RuntimeError:
-            logger.exception('Exception: Listener thread %s already running.', l)
-            continue
-        listener.append((l, q))
-    """
-
     logger.debug('Starting live capture on interface: %s', args.interface)
-    # spawn dispatcher for interface
     greenlet = gevent.spawn(Dispatcher, args.interface, network, default,
                             (devices, routes, externals), (hpfeeds, dblogger), tunnels)
-    greenlet.link_exception(lambda: unhandled_exception(greenlet, (tunnels, args.config, arp_daemon, web_server)))
-
-    # FIX: we might not be able to drop privileges as we are using raw sockets
-    """
-    drop_privileges(args.uid, args.gid)
-    """
+    greenlet.link_exception(lambda: unhandled_exception(
+        greenlet, (tunnels, args.config, arp_daemon, web_server)))
 
     try:
         greenlet.join()
-        """
-        for l in listener:
-            try:
-                l[0].join()
-            except RuntimeError:
-                logger.exception('Exception: Listener thread %s possible deadlock or thread is not running')
-        """
     except KeyboardInterrupt:
         logging.info('Received keyboard interrupt...')
 
     logging.info('Stopping Honeyd.')
     logger.info('Terminating greenlet: %s', greenlet)
     greenlet.kill()
-    """
-    for l in listener:
-        l[0].terminate()
-    """
     logger.info('Closing tunnel interfaces: %s', tunnels)
     Builder().teardown_tunnels(tunnels, package_directory, args.config)
     if arp_daemon:

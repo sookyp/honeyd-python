@@ -1,12 +1,16 @@
 #!/usr/bin/env python
-
+"""Icmp.py defines the ICMP behavior"""
+import logging
 from datetime import datetime, time
 from impacket import ImpactPacket
 
+logger = logging.getLogger(__name__)
 
 class ICMPHandler(object):
+    """ICMPHandler defines behavior opened, closed, blocked and filtered ports"""
 
     def opened(self, packet, path, personality, **kwargs):
+        """Function defines open port behavior"""
         callback_ipid = kwargs.get('cb_ipid', None)
         # create reply packets
         type_filter = {ImpactPacket.ICMP.ICMP_ECHO: ImpactPacket.ICMP.ICMP_ECHOREPLY,
@@ -90,8 +94,11 @@ class ICMPHandler(object):
                 except BaseException:
                     raise Exception('Unsupported IE:TG=%s', personality.fp_ie['TG'])
 
-            delta_ttl = len(path)
-            reply_ip.set_ip_ttl(ttl - delta_ttl)
+            delta_ttl = ttl - path
+            if delta_ttl < 1:
+                logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+                return None
+            reply_ip.set_ip_ttl(delta_ttl)
 
             # include ICMP ECHO data
             data = icmp_packet.child()
@@ -107,7 +114,7 @@ class ICMPHandler(object):
 
         # ICMP MASK REPLY
         elif icmp_packet.get_icmp_type() == ImpactPacket.ICMP.ICMP_MASKREQ:
-            # TODO: support in future
+            # TODO
             pass
 
         # ICMP TSTAMP REPLY
@@ -143,8 +150,11 @@ class ICMPHandler(object):
                 except BaseException:
                     raise Exception('Unsupported IE:TG=%s', personality.fp_ie['TG'])
 
-            delta_ttl = len(path)
-            reply_ip.set_ip_ttl(ttl - delta_ttl)
+            delta_ttl = ttl - path
+            if delta_ttl < 1:
+                logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+                return None
+            reply_ip.set_ip_ttl(delta_ttl)
 
             reply_icmp.calculate_checksum()
             reply_ip.contains(reply_icmp)
@@ -152,12 +162,15 @@ class ICMPHandler(object):
         return reply_ip
 
     def closed(self, packet, path, personality, **kwargs):
+        """Function defines closed port behavior"""
         # ICMP closed is ignored
         return None
 
     def filtered(self, packet, path, personality, **kwargs):
+        """Function defines filtered port behavior - filtered is defined according to nmap"""
         # ICMP filtered is ignored
         return None
 
     def blocked(self, packet, path, personality, **kwargs):
+        """Function defines blocked port behavior - no response is created for blocked ports"""
         return None

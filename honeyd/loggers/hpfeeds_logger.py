@@ -1,18 +1,22 @@
 #!/usr/bin/env python
-
+"""HPfeeds_logger.py is reponsible for connecting to an hpfeeds broker and submitting the attack-related information"""
 import logging
-import gevent
 import socket
-import hpfeeds
-from hpfeeds import FeedException
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
+import hpfeeds
+import gevent
 
 logger = logging.getLogger(__name__)
 
 
 class HPFeedsLogger(object):
-
+    """HPFeedsLogger connects to a broker and published the data stored in the attack_event dictionary"""
     def __init__(self, config_file):
+        """Function initializes the HPfeeds logger
+        Args:
+            config_file : name of the honeypot configuration file
+        """
         logger.debug('Initializing hpfeeds logger.')
         parser = ConfigParser()
         parser.read(config_file)
@@ -36,6 +40,7 @@ class HPFeedsLogger(object):
             self.enabled = False
 
     def _start_connection(self):
+        """Function connects to the hpfeeds broker"""
         logger.debug('Connecting to hpfeeds broker.')
         try:
             self.hpc = hpfeeds.new(self.host, self.port, self.ident, self.secret, self.timeout, self.reconnect)
@@ -44,6 +49,10 @@ class HPFeedsLogger(object):
             logger.exception('Exception: Cannot connect to hpfeeds service.')
 
     def publish(self, attack_event):
+        """Function publishes the attack-related data to the broker
+        Args:
+            attack_event : dictionary containing the information
+        """
         retries = 0
         if self._initial_connection_happened:
             while True:

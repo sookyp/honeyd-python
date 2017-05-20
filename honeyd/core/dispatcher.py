@@ -1,33 +1,40 @@
 #!/usr/bin/env python
-
+"""Dispatcher.py is responsible for sniffing the intercepted network traffic and simulating the network routing."""
 import logging
-import pcapy
-import impacket
 import random
-import networkx
 import netifaces
 import ipaddress
-import struct
-import array
+import pcapy
+
+import networkx
+from networkx.readwrite import json_graph
 
 from requests import post
 from json import dumps
-
 from collections import deque
 from impacket import ImpactPacket, ImpactDecoder
 
-import honeyd
 from honeyd.loggers.attack_event import AttackEvent
 
 logger = logging.getLogger(__name__)
 
 
 class Dispatcher(object):
-
+    """Class dispatcher handles the sniffing, element lookup in the network, routing, etc."""
     def __init__(self, interface, network, default, elements, loggers, tunnels):
+        """Function initialized the dipatcher
+        Args:
+            interface : name of the network interface to listen
+            network : networkx graph representation of the network
+            default : default template
+            elements : elements of the network
+            loggers : instances of the logger modules
+            tunnels : tunnel configuration
+        """
         self.interface = interface
         self.mac = netifaces.ifaddresses(self.interface)[netifaces.AF_LINK][0]['addr']
         self.network = network
+        post('http://localhost:8080/network', json=dumps(json_graph.node_link_data(self.network)))
         self.default = default
         self.devices, self.routes, self.externals = elements
         self.hpfeeds, self.dblogger = loggers
@@ -54,20 +61,161 @@ class Dispatcher(object):
                 self.callback(hdr, pkt)
             except KeyboardInterrupt:
                 return
-        """
-        self.pcapy_object.loop(-1, self.callback)
-        try:
-            for ts, pkt in self.pcap_object:
-                self.callback(ts, pkt)
-        except KeyboardInterrupt:
-            return
-        """
 
-    def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, type, code):
+    def _log_event(self, eth):
+        """Function extracts data from intercepted packets and logs the information
+        Args:
+            eth : received packet
+        Return:
+            attack_event : dictionary containing extracted information
+        """
+        # ethernet
+        """
+        eth_src, eth_dst, eth_type
+        """
+        eth_type = eth.get_ether_type()
+        eth_src = eth.as_eth_addr(eth.get_ether_shost())
+        eth_dst = eth.as_eth_addr(eth.get_ether_dhost())
+
+        # ip/ip6/arp/dot1x/llc/data
+        """
+        pkt_src, pkt_dst, pkt_proto, ip_ttl, proto_src, proto_dst, info
+        """
+        pkt = eth.child()
+        info = None
+        proto_src, proto_dst, pkt_proto, ip_ttl = (0,) * 4
+        if eth_type == 0x00:
+            return None
+        elif eth_type == 0x800:  # IPv4
+            # IP
+            pkt_src = unicode(pkt.get_ip_src())
+            pkt_dst = unicode(pkt.get_ip_dst())
+            pkt_proto = pkt.get_ip_p()
+            ip_ttl = pkt.get_ip_ttl()
+            info = "Length:" + str(pkt.get_ip_len())
+
+            # TCP/UDP/ICMP/IGMP
+            proto = pkt.child()
+
+            if pkt_proto == ImpactPacket.TCP.protocol:
+                proto_src = proto.get_th_sport()
+                proto_dst = proto.get_th_dport()
+                flags = "(" + str(proto.get_th_flags()) + ") "
+                if proto.get_CWR():
+                    flags += "C"
+                if proto.get_ECE():
+                    flags += "E"
+                if proto.get_URG():
+                    flags += "U"
+                if proto.get_ECE():
+                    flags += "E"
+                if proto.get_ACK():
+                    flags += "A"
+                if proto.get_PSH():
+                    flags += "P"
+                if proto.get_RST():
+                    flags += "R"
+                if proto.get_SYN():
+                    flags += "S"
+                if proto.get_FIN():
+                    flags += "F"
+                info += " Flags:" + flags
+
+            elif pkt_proto == ImpactPacket.UDP.protocol:
+                proto_src = proto.get_uh_sport()
+                proto_dst = proto.get_uh_dport()
+
+            elif pkt_proto == ImpactPacket.ICMP.protocol:
+                info += \
+                    " Type:" + str(proto.get_icmp_type()) + \
+                    " Code:" + str(proto.get_icmp_code())
+
+            elif pkt_proto == ImpactPacket.IGMP.protocol:
+                # there is an issue with impacket properly decoding igmp packets
+                # info += \
+                #     " Type:" + str(proto.get_igmp_type()) + \
+                #     " Code:" + str(proto.get_igmp_code()) + \
+                #     " GroupAddress:" + str(proto.get_igmp_group())
+                pass
+
+        elif eth_type == 0x86dd:  # IPv6
+            # deprecated soon
+            pkt_src = unicode(pkt.get_source_address())
+            pkt_dst = unicode(pkt.get_destination_address())
+            pkt_proto = pkt.get_next_header()
+            ip_ttl = pkt.get_hop_limit()
+            info = "Length:" + str(pkt.get_payload_length())
+
+            # TCP/UDP/ICMP/IGMP
+            proto = pkt.child()
+
+            if pkt_proto == ImpactPacket.TCP.protocol:
+                proto_src = proto.get_th_sport()
+                proto_dst = proto.get_th_dport()
+                info += " Flags:" + str(proto.get_th_flags())
+
+            elif pkt_proto == ImpactPacket.UDP.protocol:
+                proto_src = proto.get_uh_sport()
+                proto_dst = proto.get_uh_dport()
+
+            elif pkt_proto == ImpactPacket.ICMP.protocol:
+                info += \
+                    " Type:" + str(proto.get_icmp_type()) + \
+                    " Code:" + str(proto.get_icmp_code())
+
+            elif pkt_proto == ImpactPacket.IGMP.protocol:
+                info += \
+                    " Type:" + str(proto.get_igmp_type()) + \
+                    " Code:" + str(proto.get_igmp_code())
+
+        elif eth_type == 0x806:  # ARP
+            pkt_src = unicode(pkt.as_pro(pkt.get_ar_spa()))
+            pkt_dst = unicode(pkt.as_pro(pkt.get_ar_tpa()))
+            info = "Operation:" + pkt.get_op_name(pkt.get_ar_op())
+        # elif eth_type == 0x888e: # EAPOL - we cannot extract too much valuable data
+        # else-branch non-supported decoder in ImpactDecoder
+        else:
+            logger.info('Not supported packet type: %s', hex(eth_type))
+            pkt_src = unicode('0')
+            pkt_dst = unicode('0')
+
+        # attack event
+        attack_event = AttackEvent()
+        attack_event.eth_src = eth_src
+        attack_event.eth_dst = eth_dst
+        attack_event.eth_type = eth_type
+        attack_event.ip_src = pkt_src
+        attack_event.ip_dst = pkt_dst
+        attack_event.port_src = proto_src
+        attack_event.port_dst = proto_dst
+        attack_event.proto = pkt_proto
+        attack_event.info = info
+        attack_event.raw_pkt = repr(pkt)
+        event = attack_event.event_dict()
+
+        logger.info('SRC=%s:%s (%s) -> DST=%s:%s (%s) TYPE=%s PROTO=%s TTL=%s {%s}', pkt_src,
+                    proto_src, eth_src, pkt_dst, proto_dst, eth_dst, hex(eth_type), pkt_proto, ip_ttl, info)
+        if self.hpfeeds.enabled:
+            self.hpfeeds.publish(event)
+        if self.dblogger.enabled:
+            self.dblogger.insert(event)
+        post('http://localhost:8080/post', json=dumps(event))
+        return event
+
+    def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, i_type, i_code):
+        """Function creates and sends back an ICMP reply
+        Args:
+            eth_src : ethernet source address
+            eth_dst : ethernet destination address
+            ip_src : ip source address
+            ip_dst : ip destination address
+            i_type : type of the icmp reply
+            i_code : code of the icmp reply
+        """
         # icmp packet
         reply_icmp = ImpactPacket.ICMP()
-        reply_icmp.set_icmp_type(type)
-        reply_icmp.set_icmp_code(code)
+        reply_icmp.set_icmp_type(i_type)
+        reply_icmp.set_icmp_code(i_code)
         reply_icmp.set_icmp_id(0)
         reply_icmp.set_icmp_seq(0)
         reply_icmp.calculate_checksum()
@@ -82,7 +230,7 @@ class Dispatcher(object):
         reply_ip.set_ip_mf(False)
         reply_ip.set_ip_src(ip_src)
         reply_ip.set_ip_dst(ip_dst)
-        reply_ip.set_ip_id(0) 
+        reply_ip.set_ip_id(0)
         reply_ip.contains(reply_icmp)
 
         # ethernet frame
@@ -99,6 +247,10 @@ class Dispatcher(object):
         self.pcapy_object.sendpacket(reply_eth.get_packet())
 
     def arp_reply(self, arp_pkt):
+        """Function creates and sends back an ARP reply
+        Args:
+            arp_pkt : received arp packet
+        """
         # arp packet
         reply_arp = ImpactPacket.ARP()
         reply_arp.set_ar_hln(6)  # Ethernet size 6
@@ -124,6 +276,12 @@ class Dispatcher(object):
         self.pcapy_object.sendpacket(reply_eth.get_packet())
 
     def get_tunnel_reply(self, src_ip):
+        """Function obtains the first response from a packet queue containing replies from remote hosts
+        Args:
+            src_ip : ip address of tunnel interface
+        Return:
+            ip packet extracted from its carrier envelope
+        """
         if src_ip not in self.packet_queue.keys():
             # remote host does not exist in dictionary -> no replies from remote server
             return None
@@ -160,7 +318,7 @@ class Dispatcher(object):
             if gre_bytes[0] & 16:
                 padding += 4
             inner_ip = gre_bytes[padding:]
-            
+
             try:
                 reply_ip = self.ip_decoder.decode(inner_ip)
             except BaseException:
@@ -173,6 +331,11 @@ class Dispatcher(object):
         return reply_ip
 
     def callback(self, ts, pkt):
+        """Function invoked for each intercepted packet, responsible for filtering, routing, transmitting replies
+        Args:
+            ts : timestamp for intercepted packet
+            pkt : received packet
+        """
         reply_packet = None
 
         # ethernet layer
@@ -181,35 +344,33 @@ class Dispatcher(object):
         except BaseException:
             logger.exception('Exception: Cannot decode incoming packet')
             return None
-        eth_type = eth.get_ether_type()
+        # filter own packets
         eth_src = eth.as_eth_addr(eth.get_ether_shost())
-        eth_dst = eth.as_eth_addr(eth.get_ether_dhost())
-
         if eth_src in self.mac_set:
             return
-        if eth_type == 0x00:
-            # Dot11
+
+        # log attack event
+        event = self._log_event(eth)
+        if event is None:
             return
-        elif eth_type == ImpactPacket.ARP.ethertype:
+
+        if event['ethernet_type'] == ImpactPacket.ARP.ethertype:
             arp = eth.child()
             self.arp_reply(arp)
             return
-        elif eth_type != ImpactPacket.IP.ethertype:
-            logger.info('Not supported non-IP packet type %s', hex(eth_type))
+        elif event['ethernet_type'] != ImpactPacket.IP.ethertype:
+            logger.debug('Dropping packet: Not supported non-IP packet type %s', hex(event['ethernet_type']))
             return
 
         # ip layer
         ip = eth.child()
-        ip_src = unicode(ip.get_ip_src())
-        ip_dst = unicode(ip.get_ip_dst())
-        ip_proto = ip.get_ip_p()
         ip_ttl = ip.get_ip_ttl()
 
         # get tunnel packets
         ip_tunnels = [str(t[1]) for t in self.tunnels]
-        if ip_src in ip_tunnels:
-            if ip_proto in [4, 47]:
-                addr = ipaddress.ip_address(ip_src)
+        if event['ip_src'] in ip_tunnels:
+            if event['protocol'] in [4, 47]:
+                addr = ipaddress.ip_address(event['ip_src'])
                 if addr not in self.packet_queue.keys():
                     self.packet_queue[addr] = deque()
                 self.packet_queue[addr].append(ip)
@@ -219,44 +380,11 @@ class Dispatcher(object):
                 # from there except GRE or IPIP traffic, currently we do not log this as attack
                 logger.info(
                     'Unexpected traffic from remote host: SRC=%s -> DST=%s PROTO=%s TTL=%s',
-                    ip_src,
-                    ip_dst,
-                    ip_proto,
+                    event['ip_src'],
+                    event['ip_dst'],
+                    event['protocol'],
                     ip_ttl)
                 return
-
-        # tcp/udp/icmp layer
-        proto = ip.child()
-        proto_src = 0
-        proto_dst = 0
-        if ip_proto == ImpactPacket.TCP.protocol:
-            proto_src = proto.get_th_sport()
-            proto_dst = proto.get_th_dport()
-        elif ip_proto == ImpactPacket.UDP.protocol:
-            proto_src = proto.get_uh_sport()
-            proto_dst = proto.get_uh_dport()
-
-        # attack event
-        attack_event = AttackEvent()
-        attack_event.eth_src = eth_src
-        attack_event.eth_dst = eth_dst
-        attack_event.eth_type = eth_type
-        attack_event.ip_src = ip_src
-        attack_event.ip_dst = ip_dst
-        attack_event.port_src = proto_src
-        attack_event.port_dst = proto_dst
-        attack_event.proto = ip_proto
-        attack_event.raw_pkt = repr(pkt)
-        attack_event = attack_event.event_dict()
-
-        logger.info('SRC=%s:%s (%s) -> DST=%s:%s (%s) TYPE=%s PROTO=%s TTL=%s', ip_src,
-                    proto_src, eth_src, ip_dst, proto_dst, eth_dst, eth_type, ip_proto, ip_ttl)
-        if self.hpfeeds.enabled:
-            self.hpfeeds.publish(attack_event)
-        if self.dblogger.enabled:
-            self.dblogger.insert(attack_event)
-
-        post('http://localhost:8080/post', json=dumps(attack_event))
 
         # save original checksum
         checksum = ip.get_ip_sum()
@@ -279,18 +407,18 @@ class Dispatcher(object):
 
         # unreachables in network
         for subnet in self.unreach_list:
-            if ipaddress.ip_address(ip_src) in ipaddress.ip_network(subnet) and len(self.entry_points):
+            if ipaddress.ip_address(event['ip_src']) in ipaddress.ip_network(subnet) and len(self.entry_points):
                 entry_ip = None
                 try:
                     entry_ip = self.entry_points[0].ip
-                except AttributeError, IndexError:
+                except (AttributeError, IndexError):
                     logger.exception('Exception: No entry point exists in configuration.')
                     return
                 self.icmp_reply(
-                    eth_dst,
-                    eth_src,
+                    event['ethernet_dst'],
+                    event['ethernet_src'],
                     entry_ip,
-                    ip_src,
+                    event['ip_src'],
                     ImpactPacket.ICMP.ICMP_UNREACH,
                     ImpactPacket.ICMP.ICMP_UNREACH_FILTERPROHIB)
                 return
@@ -298,27 +426,28 @@ class Dispatcher(object):
         # find corresponding device template
         handler = self.default
         for device in self.devices:
-            if ip_dst in device.bind_list:
+            if event['ip_dst'] in device.bind_list:
                 handler = device
                 break
         if handler == self.default:
             for external in self.externals:
-                if ip_dst == external.ip:
-                    handler = device
+                if event['ip_dst'] == external.ip:
+                    handler = external
                     break
 
+        additional_path_length = 0
         # find corresponding router
         target_router = None
         for route in self.routes:
             # router in network - path via connect_list
-            if ipaddress.ip_address(ip_dst) == ipaddress.ip_address(route.ip):
+            if ipaddress.ip_address(event['ip_dst']) == ipaddress.ip_address(route.ip):
                 target_router = route
                 break
         if target_router is None:
             # direct path in network - path via link_list
             for route in self.routes:
                 for link in route.link_list:
-                    if ipaddress.ip_address(ip_dst) in ipaddress.ip_network(link):
+                    if ipaddress.ip_address(event['ip_dst']) in ipaddress.ip_network(link):
                         target_router = route
                         break
                 if target_router is not None:
@@ -326,22 +455,23 @@ class Dispatcher(object):
         if target_router is None:
             # no direct path - path via reachable subnet
             for route in self.routes:
-                if ipaddress.ip_address(ip_dst) in ipaddress.ip_network(route.subnet):
+                if ipaddress.ip_address(event['ip_dst']) in ipaddress.ip_network(route.subnet):
                     target_router = route
+                    additional_path_length = random.randint(1, 9)  # unknown number of devices in path
                     break
         if target_router is None and len(self.entry_points):
             # packet destination ip not in unreachables, connections or links
             entry_ip = None
             try:
                 entry_ip = self.entry_points[0].ip
-            except AttributeError, IndexError:
+            except (AttributeError, IndexError):
                 logger.exception('Exception: No entry point exists in configuration.')
                 return
             self.icmp_reply(
-                eth_dst,
-                eth_src,
+                event['ethernet_dst'],
+                event['ethernet_src'],
                 entry_ip,
-                ip_src,
+                event['ip_src'],
                 ImpactPacket.ICMP.ICMP_UNREACH,
                 ImpactPacket.ICMP.ICMP_UNREACH_HOST_UNKNOWN)
             return
@@ -364,34 +494,31 @@ class Dispatcher(object):
                     elif loss < 0:
                         loss = 0
                     drop_threshold *= float(1.0 - loss / 100.0)  # probability of no error in path
-                drop = random.uniform(0.0, 1.0)  # TODO: test corner cases
+                drop = random.uniform(0.0, 1.0)
                 if drop > drop_threshold:
                     return
 
                 latency = sum(attributes['latency'].values())
 
                 # check reachability according to ttl
-                if len(path) > ip_ttl:
-                    # TTL < path length
+                path_len = len(path) + additional_path_length
+                if path_len > ip_ttl:
                     self.icmp_reply(
-                        eth_dst,
-                        eth_src,
+                        event['ethernet_dst'],
+                        event['ethernet_src'],
                         target_router.ip,
-                        ip_src,
+                        event['ip_src'],
                         ImpactPacket.ICMP.ICMP_TIMXCEED,
                         ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
                     return
 
                 reply_packet = handler.handle_packet(
-                    eth, path, (ip_proto, proto_dst), self.tunnels, cb_tunnel=self.get_tunnel_reply)
+                    eth, path_len, event, self.tunnels, cb_tunnel=self.get_tunnel_reply)
                 break
             # else-branch: router with no defined entry to it - ignore
 
-        # print '-------------------------------------------------------'
-        # print reply_packet
-        # print '-------------------------------------------------------'
-
-        # TODO: handle reply - wait according to latency
+        # TODO: wait according to latency characteristics
+        # implement queueing system with timestamps for each packet
         if reply_packet is not None:
             logger.debug('Sending reply: %s', reply_packet)
             self.pcapy_object.sendpacket(reply_packet.get_packet())

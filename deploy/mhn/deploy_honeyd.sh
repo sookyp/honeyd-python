@@ -57,8 +57,8 @@ mkdir -p /etc/supervisor/conf.d
 
 HONEYD_HOME=/opt/honeyd-python
 mkdir -p $HONEYD_HOME
-# git clone https://github.com/sookyp/honeyd-python.git $HONEYD_HOME
-git clone https://github.com/sookyp/honeyd-python.git --branch development $HONEYD_HOME
+git clone https://github.com/sookyp/honeyd-python.git $HONEYD_HOME
+# git clone https://github.com/sookyp/honeyd-python.git --branch development $HONEYD_HOME
 cd $HONEYD_HOME
 virtualenv env
 source env/bin/activate
@@ -84,13 +84,13 @@ db = honeyd
 username = honeyd
 passphrase = honeyd
 logdevice = /tmp/mysql.sock
-logsocket = dev ; logsocket = [ tcp | dev ]
+logsocket = dev
 
 [tunnel]
-use_public = False ; used for testing in private network - sets the use of public ip address for tunnel interface creation
-interface = enp0s3 ; used for testing in private network - sets interface facing the intermediate network
-startid = 0 ; numbering of tunnel interfaces (startid+1)
-subnet = 172.168.1.0/24 ; ip range used to define tunnel interfaces
+use_public = False
+interface = enp0s3
+startid = 0
+subnet = 172.168.1.0/24
 urls = ["http://queryip.net/ip/",
         "http://ifconfig.me/ip",
         "http://ip.42.pl/raw",

@@ -1,17 +1,23 @@
 #!/usr/bin/env python
-
+"""Mysqldb_logger.py is responsible for creating and inserting data into the database."""
 import logging
-import MySQLdb
-import gevent
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from warnings import filterwarnings
+
+import gevent
+import MySQLdb
 filterwarnings('ignore', category=MySQLdb.Warning)
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseLogger(object):
+    """DatabaseLogger creates tables for logging, inserts the attack-related data into the tables"""
     def __init__(self, config_file):
+        """Function initializes the logger
+        Args:
+            config_file : name of the honeypot configuration file
+        """
         logger.debug('Initializing database logger.')
         parser = ConfigParser()
         parser.read(config_file)
@@ -34,6 +40,7 @@ class DatabaseLogger(object):
             self.enabled = False
 
     def _connect(self):
+        """Function connects to the database"""
         logger.debug('Connecting to MySQL database.')
         try:
             if str(self.logsocket).lower() == 'tcp':
@@ -54,6 +61,7 @@ class DatabaseLogger(object):
             logger.exception('Exception: Cannot connect to database.')
 
     def _create_database(self):
+        """Function creates the tables in the database"""
         logger.debug('Creating MySQL database.')
         cursor = self.connection.cursor()
         cursor.execute("""
@@ -74,27 +82,33 @@ class DatabaseLogger(object):
                 `port_destination` text NOT NULL,
                 `ethernet_type` text NOT NULL,
                 `protocol` text NOT NULL,
+                `info` text NOT NULL,
                 `raw_packet` text NOT NULL,
                 PRIMARY KEY (`id`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
                 """)
 
     def insert(self, attack_event):
+        """Function inserts attack-related data into the database
+        Args:
+            attack_event : dictionary containing attack-related information
+        """
         cursor = self.connection.cursor()
         try:
             cursor.execute("""
-                INSERT INTO events (ethernet_source, ip_source, port_source, ethernet_destination, ip_destination, port_destination, ethernet_type, protocol, raw_packet)
+                INSERT INTO events (ethernet_source, ip_source, port_source, ethernet_destination, ip_destination, port_destination, ethernet_type, protocol, info, raw_packet)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""", (
-                str(attack_event["ethernet_src"]),
-                str(attack_event["ip_src"]),
-                str(attack_event["port_src"]),
-                str(attack_event["ethernet_dst"]),
-                str(attack_event["ip_dst"]),
-                str(attack_event["port_dst"]),
-                str(attack_event["ethernet_type"]),
-                str(attack_event["protocol"]),
-                str(attack_event["raw_pkt"])
-            ))
+                    str(attack_event["ethernet_src"]),
+                    str(attack_event["ip_src"]),
+                    str(attack_event["port_src"]),
+                    str(attack_event["ethernet_dst"]),
+                    str(attack_event["ip_dst"]),
+                    str(attack_event["port_dst"]),
+                    str(attack_event["ethernet_type"]),
+                    str(attack_event["protocol"]),
+                    str(attack_event["info"]),
+                    str(attack_event["raw_pkt"])
+                    ))
             self.connection.commit()
         except (AttributeError, MySQLdb.OperationalError):
             logger.error('Error: Cannot insert attack event into database.')

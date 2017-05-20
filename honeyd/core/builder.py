@@ -1,11 +1,10 @@
 #!/usr/bin/env python
-
+"""Builder.py is responsible for creating a data representation of the network according to the configuration files"""
 import logging
 import os
 import sys
 import re
 import random
-import networkx
 import ipaddress
 import netifaces
 import subprocess
@@ -13,6 +12,8 @@ import subprocess
 from json import loads
 from lxml import etree
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+
+import networkx
 
 from honeyd.core.parser import Parser
 from honeyd.core.element import Device, Route, External
@@ -27,6 +28,16 @@ class Builder(object):
     """
 
     def build_network(self, work_dir, config_file, network_file, fp_file, mac_file):
+        """Function creates a graph representation of the network from the configuration files
+        Args:
+            work_dir : path to working directory where configuration files are located
+            config_file : name of the honeypot configuration file
+            network_file : name of the network configuration file
+            fp_file : nmap-os-db file
+            mac_file : nmap-mac-prefixes file
+        Return:
+            (network, default, devices, routes, externals, tunnels) : tuple containing objects and instances according to their names
+        """
         logger.debug('Validating configuration file %s', network_file)
         xsd_file_location = os.path.join(work_dir, "templates/honeyd.xsd")
         config_file_location = os.path.join(work_dir, config_file)
@@ -48,10 +59,9 @@ class Builder(object):
             personality_parser = Parser(fp_file, mac_file)
             default_personality = personality_parser.parse('Linux 2.6.31')
             default = Device('default', default_personality, '00:08:c7:1b:8c:02', {
-                             'tcp': 'closed', 'udp': 'closed', 'icmp': 'closed'}, list(), list())
+                'tcp': 'closed', 'udp': 'closed', 'icmp': 'closed'}, list(), list())
 
         logger.info('Building virtual network.')
-        # TODO: ensure user cannot configure bad network
         # implement a structure defining the network
         network = networkx.Graph()
         # add routers as nodes
@@ -72,6 +82,15 @@ class Builder(object):
         return (network, default, devices, routes, externals, tunnels)
 
     def parse_configuration(self, network_file, fp_file, mac_file, config_file):
+        """Function parses XML network configuration and creates data structure of network elements
+        Args:
+            config_file : name of the honeypot configuration file
+            network_file : name of the network configuration file
+            fp_file : nmap-os-db file
+            mac_file : nmap-mac-prefixes file
+        Return:
+            list of data structures defining elemets in the network
+        """
         dom_template = etree.parse(network_file)
         device_template = dom_template.xpath('//network_configuration/device_information/*')
         routing_template = dom_template.xpath('//network_configuration/routing_information/*')
@@ -146,8 +165,8 @@ class Builder(object):
                                 logger.error(
                                     'Error: Invalid tunnel mode defined in configuration at Name: %s Protocol: %s Value: %s. Possible values are \"gre\" and \"ipip\".',
                                     personality_name,
-                                    protocol,
-                                    execute)
+                                    key,
+                                    value)
                                 sys.exit(1)
                             if remote_ip not in tunnel_dict.keys():
                                 tunnel_dict[remote_ip] = remote_mode
@@ -292,6 +311,11 @@ class Builder(object):
         return device_list, route_list, external_list, assignment_list
 
     def validate_template(self, xml_file, xsd_file):
+        """Function check the validity of the XML configuration
+        Args:
+            xml_file : network configuration file
+            xsd_file : Schema Definition defining the ruleset
+        """
         xml_schema = etree.parse(xsd_file)
         xsd = etree.XMLSchema(xml_schema)
         xml = etree.parse(xml_file)
@@ -301,29 +325,14 @@ class Builder(object):
             sys.exit(1)
 
     def setup_tunnels(self, tunnels, config):
+        """Function creates and configures IPIP and GRE tunnels
+        Args:
+            tunnels : dictionary of tunnel ips and modes
+            config : honeypot configuration file
+        Return:
+            list of successfully created tunnels
+        """
         logging.debug('Creating tunnel interfaces.')
-        """
-        ### modprobe tun
-        ### lsmod |grep tun
-        ### ip tunnel add tun0 mode ipip remote 202.182.ab.cd local 203.153.xxx.xx
-        ### ifconfig tun0 202.182.ab.254 netmask 255.255.255.252 pointopoint 202.182.ab.253
-        ### ifconfig tun0 mtu 1500 up
-        ### ip link set tun0 up
-
-            HOST A
-        $ sudo modprobe ip_gre
-        $ lsmod | grep gre
-        $ sudo ip tunnel add gre0 mode gre remote 172.168.10.25 local 192.168.233.204 ttl 255
-        $ sudo ip link set gre0 up
-        $ sudo ip addr add 10.10.10.1/24 dev gre0
-        $ ip route show
-
-            HOST B
-        $ sudo ip tunnel add gre0 mode gre remote 192.168.233.204 local 172.168.10.25 ttl 255
-        $ sudo ip link set gre0 up
-        $ sudo ip addr add 10.10.10.2/24 dev gre0
-        """
-
         assignments = list()
         parser = ConfigParser()
         parser.read(config)
@@ -359,7 +368,6 @@ class Builder(object):
             logger.error('Error: Not enough IPs in configured subnet for all proxies.')
             sys.exit(1)
 
-        # check module
         for mode in ['ipip', 'ip_gre']:
             code = subprocess.call(['modprobe', mode])
             if code:
@@ -382,12 +390,13 @@ class Builder(object):
         return assignments
 
     def teardown_tunnels(self, tunnels, work_dir, config_file):
+        """Function destroys the created tunnels
+        Args:
+            tunnels : list of existing tunnels
+            work_dir : working directory path where the configuration files are located
+            config_file : name of the honeypot configuration file
+        """
         logging.debug('Destroying tunnel interfaces.')
-        """
-        $ sudo ip link set gre0 down
-        $ sudo ip tunnel del gre0
-        """
-
         config_file_location = os.path.join(work_dir, config_file)
         parser = ConfigParser()
         parser.read(config_file)
@@ -397,7 +406,6 @@ class Builder(object):
             logger.error('Error: Incomplete honeyd.cfg configuration.')
             sys.exit(1)
 
-        # for t in tunnels:
         for i in range(0, len(tunnels)):
             tunnel_id += 1
             name = 'tun' + str(tunnel_id)

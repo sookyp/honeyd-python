@@ -1,11 +1,16 @@
 #!/usr/bin/env python
-
+"""Udp.py defines the UDP behavior"""
+import logging
 from impacket import ImpactPacket
+
+logger = logging.getLogger(__name__)
 
 
 class UDPHandler(object):
+    """UDPHandler defines behavior opened, closed, blocked and filtered ports"""
 
     def opened(self, packet, path, personality, **kwargs):
+        """Function defines open port behavior"""
         callback_ipid = kwargs.get('cb_ipid', None)
         # send rUDP
         udp_packet = packet.child()
@@ -43,14 +48,18 @@ class UDPHandler(object):
                 ttl = int(personality.fp_u1['TG'], 16)
             except BaseException:
                 raise Exception('Unsupported U1:TG=%s', personality.fp_u1['TG'])
-        delta_ttl = len(path)
-        reply_ip.set_ip_ttl(ttl - delta_ttl)
+        delta_ttl = ttl - path
+        if delta_ttl < 1:
+            logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+            return None
+        reply_ip.set_ip_ttl(delta_ttl)
         reply_ip.auto_checksum = 1
         reply_ip.contains(reply_udp)
 
         return reply_ip
 
     def closed(self, packet, path, personality, **kwargs):
+        """Function defines closed port behavior"""
         callback_cipid = kwargs.get('cb_cipid', None)
         # respond with ICMP error type 3 code 3
         # check R
@@ -95,7 +104,7 @@ class UDPHandler(object):
         reply_icmp.set_icmp_type(ImpactPacket.ICMP.ICMP_UNREACH)
         reply_icmp.set_icmp_code(ImpactPacket.ICMP.ICMP_UNREACH_PORT)
         reply_icmp.set_icmp_id(0)  # unused field
-        reply_icmp.set_icmp_seq(0)  # unused filed
+        reply_icmp.set_icmp_seq(0)  # unused field
         reply_icmp.auto_checksum = 1
 
         # ip packet
@@ -135,9 +144,11 @@ class UDPHandler(object):
                 ttl = int(personality.fp_u1['TG'], 16)
             except BaseException:
                 raise Exception('Unsupported U1:TG=%s', personality.fp_u1['TG'])
-        # TODO: update TTL according to path length
-        delta_ttl = len(path)
-        reply_ip.set_ip_ttl(ttl - delta_ttl)
+        delta_ttl = ttl - path
+        if delta_ttl < 1:
+            logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+            return None
+        reply_ip.set_ip_ttl(delta_ttl)
 
         # check UN
         un = 0
@@ -195,7 +206,8 @@ class UDPHandler(object):
             try:
                 ruck = int(personality.fp_u1['RUCK'], 16)
                 inner_udp.set_uh_sum(ruck)
-            except BaseException:                # leave it as original
+            except BaseException:
+                # leave it as original
                 pass
 
         # check RUD
@@ -225,6 +237,7 @@ class UDPHandler(object):
         return reply_ip
 
     def filtered(self, packet, path, personality, **kwargs):
+        """Function defines filtered port behavior - filtered is defined according to nmap"""
         callback_ipid = kwargs.get('cb_ipid', None)
         # respond with ICMP error type 3 code 13 OR ignore
         # icmp packet
@@ -266,12 +279,16 @@ class UDPHandler(object):
             except BaseException:
                 raise Exception('Unsupported IE:TG=%s', personality.fp_ie['TG'])
 
-        delta_ttl = len(path)
-        reply_ip.set_ip_ttl(ttl - delta_ttl)
+        delta_ttl = ttl - path
+        if delta_ttl < 1:
+            logger.debug('Reply packet dropped: TTL reached 0 within virtual network.')
+            return None
+        reply_ip.set_ip_ttl(delta_ttl)
         reply_ip.auto_checksum = 1
         reply_ip.contains(reply_icmp)
 
         return reply_ip
 
     def blocked(self, packet, path, personality, **kwargs):
+        """Function defines blocked port behavior - no response is created for blocked ports"""
         return None

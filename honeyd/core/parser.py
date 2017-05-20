@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+"""Parser.py is responsible for parsing the nmap-os-db and nmap-mac-prefixes files."""
 import logging
 import sys
 import os
@@ -11,11 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 class Parser(object):
-    """
-    Responsible for parsing the nmap-os-db and nmap-mac-prefixes files and creating the approrpiate personality structure.
-    """
+    """Responsible for parsing the nmap-os-db and nmap-mac-prefixes files and creating the approrpiate personality structure."""
 
     def __init__(self, fingerprint_file, mac_file):
+        """Function initializes the parser and obtains the open file descriptors
+        Args:
+            fingerprint_file : nmap-os-db file
+            mac_file : nmap-mac-prefixes file
+        """
         logger.debug('Initializing Nmap fingerprint parser.')
         fd_fingerprint_file = open(fingerprint_file)
         self.fingerprint_file = mmap.mmap(fd_fingerprint_file.fileno(), 0, access=mmap.ACCESS_READ)
@@ -24,6 +27,12 @@ class Parser(object):
         self.mac_file = mmap.mmap(fd_mac_file.fileno(), 0, access=mmap.ACCESS_READ)
 
     def parse(self, personality):
+        """Function parses the fingerprint file and creates a personality data structure
+        Args:
+            personality : name of the fingerprint personality
+        Return:
+            instance of a personality object defining network stack behavior
+        """
         logger.debug('Initializing personality for device %s', personality)
         # first occurence of fingerprint name and empty line delimiter
         start_index = self.fingerprint_file.find('Fingerprint ' + personality)
@@ -83,6 +92,11 @@ class Parser(object):
         return p
 
     def get_mac_oui(self, personality, vendor_list=None):
+        """Function generates a proper MAC OUI according to given vendors, or randomly
+        Args:
+            personality : personality of the device
+            vendor_list : list of vendors according to the nmap-mac-prefixes file
+        """
         logger.debug('Initializing MAC OUI for device %s', personality)
         if vendor_list is None or not len(vendor_list):
             # in case no vendor list is given find try to find mac according to personality class vendor
@@ -91,26 +105,25 @@ class Parser(object):
             if len(vendor_list):
                 current_vendor = vendor_list.pop()
                 # looking for exact matches
-                match = re.match('^([0-9A-F]{6})\s' + current_vendor + '$', self.mac_file, re.MULTILINE)
+                match = re.match(r'^([0-9A-F]{6})\s' + current_vendor + '$', self.mac_file, re.MULTILINE)
                 if match is not None:
                     personality.mac_oui = match.group(1)
             else:
                 logger.warning('Using random generated MAC address for personality: %s', personality.fp_name)
-                logger.debug('No MAC OUI found for given vendors. Generating random MAC OUI for personalities %s', personality.fp_name)
                 personality.mac_oui = hex(random.randrange(16**6))[2:]
 
     def close_files(self):
-        logger.debug('Closing file descriptiors for Nmap files.')
+        """Function closes file descriptors for nmap files"""
+        logger.debug('Closing file descriptors for Nmap files.')
         self.fingerprint_file.close()
         self.mac_file.close()
 
 
 class Personality(object):
-    """
-    Defines structure of device personalities, containing device MAC OUI and response requirements to nmap scans
-    """
+    """Defines structure of device personalities, containing device MAC OUI and response requirements to nmap scans"""
 
     def __init__(self):
+        """Function initializes the personality data structure"""
         self.mac_oui = None
         self.fp_name = None
         self.fp_class = list()
