@@ -182,6 +182,7 @@ def main():
         server_path = os.path.join(package_directory, 'utilities/web_server.py')
         web_server = gevent.subprocess.Popen(
             ['python2.7', server_path], stdout=devnull, stderr=gevent.subprocess.STDOUT)
+        gevent.sleep(1)
     except Exception as ex:
         logger.error('Cannot start honeyd web server: %s', ex)
         sys.exit(1)

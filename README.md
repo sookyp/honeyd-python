@@ -1,12 +1,12 @@
 # Honeyd-python
 ---
 
-Honeyd-python is a low-interaction honeypot implementation based on the core principles of [Honeyd](http://www.honeyd.org/) honeypot. The honeypot allows a single host machine to claim unused IP addresses on LAN and simulate a virtual network of honeypots. The virtual honeypots can be configured to emulate the network stack of an operating system from [Nmap's OS detection database](https://nmap.org/book/nmap-os-db.html). Honeyd-python can redirect attacks to remote honeypots via network tunneling.
+Honeyd-python is a low-interaction honeypot implementation based on the core principles of [Honeyd](http://www.honeyd.org/) honeypot. The honeypot allows a single host machine to claim unused IP addresses on LAN and simulate a virtual network of honeypots. The virtual honeypots can be configured to emulate the network stack of an operating system from [Nmap's OS detection database](https://nmap.org/book/nmap-os-db.html). Honeyd-python can redirect attacks to remote honeypots via network tunneling. Honeyd-python provides basic attack data statistics on a web server accessible at ``localhost:8080``.
 
 ### INSTALLATION
 ---
 
-Honeyd-python supports integration into [Modern Honey Network](https://github.com/threatstream/mhn), the necessary files can be located in ``deploy/``. The honeypot supports Ubuntu 16.04 LTS and CentOS 7 distributions.
+Honeyd-python supports integration into [Modern Honey Network](https://github.com/threatstream/mhn), the required files can be located in ``deploy/``. The honeypot supports Ubuntu 16.04 LTS and CentOS 7 distributions.
 
 In case Modern Honey Network integration is not desired, then
 1. Install pip2.7:
@@ -23,7 +23,7 @@ yum -y install git farpd mysql-server mysql-devel python-devel python-setuptools
 ```
 apt-get -y install git farpd mysql-server libmysqlclient-dev python-mysqldb libpcap-dev python-tk
 ```
-3. Through pip2.7 intall requirements from repository:
+3. Through pip2.7 install requirements from repository:
 ```
 pip2.7 install -r requirements.txt
 ```
@@ -31,7 +31,7 @@ pip2.7 install -r requirements.txt
 ### CONFIGURATION
 ---
 Honeyd-python's logging and tunnel creation can be configured in ``honeyd/templates/honeyd.cfg``:
-```
+```ini
 [hpfeeds]
 ; section defines the settings for HPfeeds logging
 enabled  = { True | False }
@@ -139,6 +139,12 @@ Honeyd-python supports the following flags:
 * -a, --address : Claim addresses matching the IP range
 * -o, --os-fingerprint : Set nmap-os-db file location
 * -m, --mac-prefix : Set nmap-mac-prefixes file location
+
+Example usage of Honeyd-python for the given sample configuration:
+* with active traffic interception:  
+``# sudo python2.7 honeyd.py -i enp0s3 -a 10.66.0.0/16``
+* without active interception traffic has to be routed to the honeypot:  
+``# sudo python2.7 honeyd.py -i enp0s3``
 
 ### LICENSE
 ---

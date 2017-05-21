@@ -34,7 +34,10 @@ class Dispatcher(object):
         self.interface = interface
         self.mac = netifaces.ifaddresses(self.interface)[netifaces.AF_LINK][0]['addr']
         self.network = network
-        post('http://localhost:8080/network', json=dumps(json_graph.node_link_data(self.network)))
+        try:
+            post('http://localhost:8080/network', json=dumps(json_graph.node_link_data(self.network)))
+        except:
+            logger.exception('Exception: Cannot connect to local server.')
         self.default = default
         self.devices, self.routes, self.externals = elements
         self.hpfeeds, self.dblogger = loggers
@@ -359,7 +362,7 @@ class Dispatcher(object):
             self.arp_reply(arp)
             return
         elif event['ethernet_type'] != ImpactPacket.IP.ethertype:
-            logger.debug('Dropping packet: Not supported non-IP packet type %s', hex(event['ethernet_type']))
+            logger.info('Dropping packet: Not supported non-IP packet type %s', hex(event['ethernet_type']))
             return
 
         # ip layer
@@ -494,8 +497,9 @@ class Dispatcher(object):
                     elif loss < 0:
                         loss = 0
                     drop_threshold *= float(1.0 - loss / 100.0)  # probability of no error in path
-                drop = random.uniform(0.0, 1.0)
+                drop = random.uniform(0.01, 0.99)
                 if drop > drop_threshold:
+                    logger.info('Dropping packet: Drop rate for router exceeds threshold.')
                     return
 
                 latency = sum(attributes['latency'].values())
@@ -510,6 +514,7 @@ class Dispatcher(object):
                         event['ip_src'],
                         ImpactPacket.ICMP.ICMP_TIMXCEED,
                         ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
+                    logger.info('Dropping packet: TTL reached zero.')
                     return
 
                 reply_packet = handler.handle_packet(
