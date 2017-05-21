@@ -1,0 +1,25 @@
+[webapi]
+# 0.0.0.0 = listen on all interfaces
+host = 0.0.0.0
+port = 8181
+
+[mongodb]
+database = mnemosyne
+
+[hpfriends]
+ident =
+secret =
+host = hpfriends.honeycloud.net
+port = 20000
+channels = amun.events,conpot.events,thug.events,beeswarm.hive,dionaea.capture,thug.files,beeswarn.feeder,cuckoo.analysis,kippo.sessions,cowrie.sessions,glastopf.events,glastopf.files,mwbinary.dionaea.sensorunique,wordpot.events,shockpot.events,p0f.events,suricata.events,elastichoney.events,honeyd.events
+
+[file_log]
+enabled = True
+file = mnemosyne.log
+
+[loggly_log]
+enabled = False
+token =
+
+[normalizer]
+ignore_rfc1918 = True

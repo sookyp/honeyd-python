@@ -1,0 +1,37 @@
+<!doctype html>
+    <head>
+        <link rel="stylesheet" href="/css/style.css">
+    </head>
+    <body>
+        <nav class="top-bar" style="margin-bottom: 30px;"  data-topbar>
+            <ul class="title-area">
+                <li class="name">
+                    <h1><a href="index.html">Honeyd Server</a></h1>
+                </li>
+            </ul>
+            <section class="top-bar-section">
+                <ul class="left">
+                    <li><a href="statistics.html">Statistics</a></li>
+                    <li><a href="charts.html">Charts</a></li>
+                </ul>
+            </section>
+        </nav>
+	<div class="row">
+		{{ !data }} 
+	</div>
+        <style>
+            #footer {
+                margin-top: 80px;
+                margin-bottom: 80px;
+                bottom: 0;
+                width: 100%;
+            }
+        </style>
+        <div class="row" id="footer">
+            <div class="bottom-bar">
+                <span><small>This software is an open-source project with available source code on </small><span>
+                <a href="https://github.com/sookyp/honeyd-python">GitHub</a>
+            </div>
+        </div>
+    </body>
+</html>

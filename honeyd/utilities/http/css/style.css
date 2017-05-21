@@ -1,0 +1,198 @@
+/** Source code of Modern Honey Network; Copyright (C) 2017 - Anomali, Inc. */
+
+html,body{
+  font-size:100%
+}
+
+body{
+  background:#fff;
+  color:#222;
+  padding:0;
+  margin:0;
+  font-family:"Helvetica Neue","Helvetica",Helvetica,Arial,sans-serif;
+  font-weight:normal;
+  font-style:normal;
+  line-height:1;
+  position:relative;
+  cursor:default
+}
+
+.left {
+  float: left;
+}
+
+*, *::before, *::after {
+  -moz-box-sizing: border-box;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+.top-bar{
+  overflow:hidden;
+  height:45px;
+  line-height:45px;
+  position:relative;
+  background:#333;
+  margin-bottom:0;
+}
+
+.top-bar::after {
+  clear: both;
+}
+
+.top-bar::before, .top-bar::after {
+  content: " ";
+  display: table;
+}
+
+.top-bar .title-area {
+  float: left;
+  position: relative;
+  margin: 0;
+}
+
+.top-bar ul {
+  margin-bottom: 0;
+  list-style: none;
+}
+
+.top-bar .name {
+  height: 45px;
+  margin: 0;
+  font-size: 16px;
+}
+
+.top-bar .name h1 {
+  line-height: 45px;
+  font-size: 1.0625rem;
+  margin: 0;
+}
+
+.top-bar .name h1 a {
+  font-weight: normal;
+  color: #fff;
+  width: auto;
+  display: block;
+  padding: 0 15px;
+}
+
+.top-bar-section {
+  left: 0;
+  position: relative;
+  width: auto;
+  -webkit-transition: left 300ms ease-out;
+  -moz-transition: left 300ms ease-out;
+  transition: left 300ms ease-out;
+}
+
+.top-bar-section ul {
+  width: auto;
+  height: auto;
+  display: inline;
+  background: #333;
+  font-size: 16px;
+  margin: 0;
+}
+
+.top-bar-section ul li {
+  float: left;
+}
+
+.top-bar-section li a:not(.button) {
+  padding: 0 15px;
+  line-height: 45px;
+  background: #333;
+}
+.top-bar-section ul li > a {
+  display: block;
+  width: 100%;
+  color: #fff;
+  padding: 12px 0 12px 0;
+  padding-left: 15px;
+  font-family: "Helvetica Neue","Helvetica",Helvetica,Arial,sans-serif;
+  font-size: 0.8125rem;
+  font-weight: normal;
+  background: #333;
+}
+
+.row {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 0;
+  margin-bottom: 0;
+  max-width: 62.5rem;
+}
+
+.row::before, .row::after {
+  content: " ";
+  display: table;
+}
+
+.row::after {
+  clear: both;
+}
+
+.bottom-bar {
+  position: relative;
+  padding-left: 0.9375rem;
+  padding-right: 0.9375rem;
+  width: 100%;
+  float: left;
+  font-size: 80%;
+  line-height: inherit;
+}
+
+a {
+  background: transparent;
+  color: #008cba;
+  text-decoration: none;
+  line-height: inherit;
+}
+
+a:active, a:hover {
+  outline: 0;
+}
+
+a:hover, a:focus {
+  color: #0079a1;
+}
+
+a:hover {
+  cursor: pointer;
+}
+
+article, aside, details, figcaption, figure, footer, header, hgroup, main, nav, section, summary {
+  display: block;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Open Sans","Helvetica Neue","Helvetica",Helvetica,Arial,sans-serif;
+  font-weight: 300;
+  font-style: normal;
+  color: #222;
+  text-rendering: optimizeLegibility;
+  margin-top: 0.2rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
+ul, ol, dl {
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 1.25rem;
+  list-style-position: outside;
+  font-family: inherit;
+}
+div, dl, dt, dd, ul, ol, li, h1, h2, h3, h4, h5, h6, pre, form, p, blockquote, th, td {
+  margin: 0;
+  padding: 0;
+  direction: ltr;
+}
+
+#footer {
+  margin-top: 80px;
+  margin-bottom: 80px;
+  bottom: 0;
+  width: 100%;
+}

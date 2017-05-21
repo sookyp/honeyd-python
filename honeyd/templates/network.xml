@@ -1,0 +1,61 @@
+<network_configuration>
+<device_information>
+<device>
+<name>uc berkeley 4.3bsd</name>
+<personality>4.3BSD</personality>
+<action tcp="open" udp="closed" icmp="open"/>
+<service_list>
+<service protocol="tcp" port="21" execute="open"/>
+<service protocol="tcp" port="22" execute="python2.7 scripts/script.py"/>
+<service protocol="tcp" port="1024" execute="closed"/>
+<service protocol="tcp" port="3" execute="filtered"/>
+<service protocol="tcp" port="5" execute="filtered"/>
+<service protocol="udp" port="105" execute="open"/>
+<service protocol="udp" port="205" execute="open"/>
+<service protocol="udp" port="505" execute="filtered"/>
+</service_list>
+<bind_list>
+<bind ip="10.66.10.100"/>
+<bind ip="10.66.11.100"/>
+</bind_list>
+</device>
+<device>
+<name>cisco router</name>
+<personality>Cisco 1700 router</personality>
+<action tcp="open" udp="closed" icmp="open"/>
+<service_list>
+<service protocol="tcp" port="22" execute="closed"/>
+<service protocol="tcp" port="1024" execute="closed"/>
+<service protocol="tcp" port="3" execute="filtered"/>
+<service protocol="tcp" port="5" execute="filtered"/>
+</service_list>
+<bind_list>
+<bind ip="10.66.1.1"/>
+<bind ip="10.66.2.1"/>
+<bind ip="10.66.2.2"/>
+<bind ip="10.66.3.1"/>
+<bind ip="10.66.3.2"/>
+<bind ip="10.66.10.1"/>
+<bind ip="10.66.11.1"/>
+</bind_list>
+</device>
+</device_information>
+<routing_information>
+<router ip="10.66.1.1" subnet="10.66.0.0/16" entry="true">
+<connect>10.66.2.2</connect>
+<connect>10.66.3.2</connect>
+<link>10.66.3.0/24</link>
+<link>10.66.2.0/24</link>
+<link>10.66.1.0/24</link>
+</router>
+<router ip="10.66.2.2" subnet="10.66.0.0/16" entry="false">
+<link>10.66.11.0/24</link>
+<link>10.66.2.0/24</link>
+</router>
+<router ip="10.66.3.2" subnet="10.66.0.0/16" entry="false">
+<link>10.66.10.0/24</link>
+<link>10.66.3.0/24</link>
+</router>
+</routing_information>
+<external></external>
+</network_configuration>
