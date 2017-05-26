@@ -202,7 +202,10 @@ class Dispatcher(object):
             self.hpfeeds.publish(event)
         if self.dblogger.enabled:
             self.dblogger.insert(event)
-        post('http://localhost:8080/post', json=dumps(event))
+        try:
+            post('http://localhost:8080/post', json=dumps(event))
+        except:
+            logger.exception('Exception: Cannot connect to local server.')
         return event
 
     def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, i_type, i_code):
@@ -262,6 +265,11 @@ class Dispatcher(object):
         reply_arp.set_ar_op(2)  # 1:'REQUEST', 2:'REPLY', 3:'REVREQUEST', 4:'REVREPLY', 8:'INVREQUEST', 9:'INVREPLY'
         reply_arp.set_ar_pro(0x800)  # IPv4 0x800
         mac = [int(i, 16) for i in self.mac.split(':')]
+        target_ip = unicode('.'.join(map(str, arp_pkt.get_ar_tpa())))
+        for d in self.devices:
+            if target_ip in d.bind_list:
+                mac = [int(i, 16) for i in d.mac.split(':')]
+                break
         reply_arp.set_ar_sha(mac)
         reply_arp.set_ar_tha(arp_pkt.get_ar_sha())
         reply_arp.set_ar_spa(arp_pkt.get_ar_tpa())
