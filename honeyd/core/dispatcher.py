@@ -45,7 +45,7 @@ class Dispatcher(object):
         self.packet_queue = dict()
         self.entry_points = list()
         self.unreach_list = list()
-        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 1000)
+        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 50)
         self.decoder = ImpactDecoder.EthDecoder()
         self.ip_decoder = ImpactDecoder.IPDecoder()
         self.ip_icmp_decoder = ImpactDecoder.IPDecoderForICMP()
@@ -250,6 +250,9 @@ class Dispatcher(object):
 
         logger.debug('Sending reply: %s', reply_eth)
         # send raw frame
+        # s = gevent.socket.socket(
+        #         gevent.socket.AF_PACKET, gevent.socket.SOCK_RAW)
+        # s.sendto(reply_eth.get_packet(), (self.interface, 0))
         self.pcapy_object.sendpacket(reply_eth.get_packet())
 
     def arp_reply(self, arp_pkt):
@@ -284,6 +287,9 @@ class Dispatcher(object):
 
         logger.debug('Sending reply: %s', reply_eth)
         # send raw frame
+        # s = gevent.socket.socket(
+        #         gevent.socket.AF_PACKET, gevent.socket.SOCK_RAW)
+        # s.sendto(reply_eth.get_packet(), (self.interface, 0))
         self.pcapy_object.sendpacket(reply_eth.get_packet())
 
     def get_tunnel_reply(self, src_ip):
@@ -401,15 +407,17 @@ class Dispatcher(object):
         checksum = ip.get_ip_sum()
         # recalculate checksum
         ip.auto_checksum = 1
-        p = ip.get_packet()
         i = None
         try:
+            p = ip.get_packet()
             i = self.ip_decoder.decode(p)
         except BaseException:
             try:
                 i = self.ip_icmp_decoder.decode(p)
             except BaseException:
                 logger.exception('Exception: Cannot decode constructed packet. Ignoring checksum verification.')
+        except TypeError:
+            logger.exception('Exception: Cannot obtain inner packet. Ignoring checksum verification.')
         if i is not None:
             valid_checksum = i.get_ip_sum()
             if checksum != valid_checksum:
@@ -534,4 +542,7 @@ class Dispatcher(object):
         # implement queueing system with timestamps for each packet
         if reply_packet is not None:
             logger.debug('Sending reply: %s', reply_packet)
+            # s = gevent.socket.socket(
+            #     gevent.socket.AF_PACKET, gevent.socket.SOCK_RAW)
+            # s.sendto(reply_packet.get_packet(), (self.interface, 0))
             self.pcapy_object.sendpacket(reply_packet.get_packet())
