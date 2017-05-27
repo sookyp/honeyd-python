@@ -45,7 +45,7 @@ class Dispatcher(object):
         self.packet_queue = dict()
         self.entry_points = list()
         self.unreach_list = list()
-        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 1000)
+        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 10)
         self.decoder = ImpactDecoder.EthDecoder()
         self.ip_decoder = ImpactDecoder.IPDecoder()
         self.ip_icmp_decoder = ImpactDecoder.IPDecoderForICMP()
@@ -202,10 +202,13 @@ class Dispatcher(object):
             self.hpfeeds.publish(event)
         if self.dblogger.enabled:
             self.dblogger.insert(event)
-        post('http://localhost:8080/post', json=dumps(event))
+        try:
+            post('http://localhost:8080/post', json=dumps(event))
+        except:
+            logger.exception('Exception: Cannot connect to local server.')
         return event
 
-    def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, i_type, i_code):
+    def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, i_type, i_code, ip_pkt):
         """Function creates and sends back an ICMP reply
         Args:
             eth_src : ethernet source address
@@ -221,6 +224,8 @@ class Dispatcher(object):
         reply_icmp.set_icmp_code(i_code)
         reply_icmp.set_icmp_id(0)
         reply_icmp.set_icmp_seq(0)
+        reply_icmp.set_icmp_void(0)
+        reply_icmp.contains(ip_pkt)
         reply_icmp.calculate_checksum()
         reply_icmp.auto_checksum = 1
 
@@ -233,7 +238,7 @@ class Dispatcher(object):
         reply_ip.set_ip_mf(False)
         reply_ip.set_ip_src(ip_src)
         reply_ip.set_ip_dst(ip_dst)
-        reply_ip.set_ip_id(0)
+        reply_ip.set_ip_id(random.randint(0, 50000)) # TODO: provide IP IDs according to personality, altough tracepath does not care
         reply_ip.contains(reply_icmp)
 
         # ethernet frame
@@ -247,7 +252,10 @@ class Dispatcher(object):
 
         logger.debug('Sending reply: %s', reply_eth)
         # send raw frame
-        self.pcapy_object.sendpacket(reply_eth.get_packet())
+        try:
+            self.pcapy_object.sendpacket(reply_eth.get_packet())
+        except pcapy.PcapError as ex:
+            logger.exception('Exception: Cannot send reply packet: %s', ex)
 
     def arp_reply(self, arp_pkt):
         """Function creates and sends back an ARP reply
@@ -262,6 +270,11 @@ class Dispatcher(object):
         reply_arp.set_ar_op(2)  # 1:'REQUEST', 2:'REPLY', 3:'REVREQUEST', 4:'REVREPLY', 8:'INVREQUEST', 9:'INVREPLY'
         reply_arp.set_ar_pro(0x800)  # IPv4 0x800
         mac = [int(i, 16) for i in self.mac.split(':')]
+        target_ip = unicode('.'.join(map(str, arp_pkt.get_ar_tpa())))
+        for d in self.devices:
+            if target_ip in d.bind_list:
+                mac = [int(i, 16) for i in d.mac.split(':')]
+                break
         reply_arp.set_ar_sha(mac)
         reply_arp.set_ar_tha(arp_pkt.get_ar_sha())
         reply_arp.set_ar_spa(arp_pkt.get_ar_tpa())
@@ -276,7 +289,10 @@ class Dispatcher(object):
 
         logger.debug('Sending reply: %s', reply_eth)
         # send raw frame
-        self.pcapy_object.sendpacket(reply_eth.get_packet())
+        try:
+            self.pcapy_object.sendpacket(reply_eth.get_packet())
+        except pcapy.PcapError as ex:
+            logger.exception('Exception: Cannot send reply packet: %s', ex)
 
     def get_tunnel_reply(self, src_ip):
         """Function obtains the first response from a packet queue containing replies from remote hosts
@@ -393,15 +409,17 @@ class Dispatcher(object):
         checksum = ip.get_ip_sum()
         # recalculate checksum
         ip.auto_checksum = 1
-        p = ip.get_packet()
         i = None
         try:
+            p = ip.get_packet()
             i = self.ip_decoder.decode(p)
         except BaseException:
             try:
                 i = self.ip_icmp_decoder.decode(p)
             except BaseException:
                 logger.exception('Exception: Cannot decode constructed packet. Ignoring checksum verification.')
+        except TypeError:
+            logger.exception('Exception: Cannot obtain inner packet. Ignoring checksum verification.')
         if i is not None:
             valid_checksum = i.get_ip_sum()
             if checksum != valid_checksum:
@@ -423,7 +441,8 @@ class Dispatcher(object):
                     entry_ip,
                     event['ip_src'],
                     ImpactPacket.ICMP.ICMP_UNREACH,
-                    ImpactPacket.ICMP.ICMP_UNREACH_FILTERPROHIB)
+                    ImpactPacket.ICMP.ICMP_UNREACH_FILTERPROHIB,
+                    ip)
                 return
 
         # find corresponding device template
@@ -476,7 +495,8 @@ class Dispatcher(object):
                 entry_ip,
                 event['ip_src'],
                 ImpactPacket.ICMP.ICMP_UNREACH,
-                ImpactPacket.ICMP.ICMP_UNREACH_HOST_UNKNOWN)
+                ImpactPacket.ICMP.ICMP_UNREACH_HOST_UNKNOWN,
+                ip)
             return
 
         for entry in self.entry_points:
@@ -506,14 +526,15 @@ class Dispatcher(object):
 
                 # check reachability according to ttl
                 path_len = len(path) + additional_path_length
-                if path_len > ip_ttl:
+                if path_len >= ip_ttl:
                     self.icmp_reply(
                         event['ethernet_dst'],
                         event['ethernet_src'],
                         target_router.ip,
                         event['ip_src'],
                         ImpactPacket.ICMP.ICMP_TIMXCEED,
-                        ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS)
+                        ImpactPacket.ICMP.ICMP_TIMXCEED_INTRANS,
+                        ip)
                     logger.info('Dropping packet: TTL reached zero.')
                     return
 
@@ -526,4 +547,7 @@ class Dispatcher(object):
         # implement queueing system with timestamps for each packet
         if reply_packet is not None:
             logger.debug('Sending reply: %s', reply_packet)
-            self.pcapy_object.sendpacket(reply_packet.get_packet())
+            try:
+                self.pcapy_object.sendpacket(reply_packet.get_packet())
+            except pcapy.PcapError as ex:
+                logger.exception('Exception: Cannot send reply packet: %s', ex)

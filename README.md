@@ -17,7 +17,10 @@ wget https://bootstrap.pypa.io/ez_setup.py
 ```
 2. Install dependencies (CentOS 7):
 ```
-yum -y install git farpd mysql-server mysql-devel python-devel python-setuptools MYSQLdb-python libpcap-dev tkinter tk-devel
+wget http://repo.mysql.com/mysql-community-release-el7-5.noarch.rpm
+rpm -ivh mysql-community-release-el7-5.noarch.rpm
+yum -y update
+yum -y install git mysql-server mysql-devel python-devel python-setuptools MySQL-python libpcap-devel tkinter tk-devel
 ```
 2. Install dependencies (Ubuntu 16.04 LTS):
 ```
@@ -143,7 +146,7 @@ Honeyd-python supports the following flags:
 Example usage of Honeyd-python for the given sample configuration:
 * with active traffic interception:  
 ``# sudo python2.7 honeyd.py -i enp0s3 -a 10.66.0.0/16``
-* without active interception traffic has to be routed to the honeypot:  
+* without active interception traffic has to be routed to the honeypot (currently required for CentOS 7):  
 ``# sudo python2.7 honeyd.py -i enp0s3``
 
 ### LICENSE
