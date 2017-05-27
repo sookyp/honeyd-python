@@ -37,8 +37,11 @@ fi
 # python-tk | tkinter, tk-devel are required for graph and chart generation for honeyd web server statistics
 # install requirements
 if [ -f /etc/redhat-release ] || [ -f /etc/centos-release ]; then
+    # install mysql-server
+    wget http://repo.mysql.com/mysql-community-release-el7-5.noarch.rpm
+    rpm -ivh mysql-community-release-el7-5.noarch.rpm
     yum -y update
-    yum -y install git farpd mysql-server mysql-devel python-devel python-setuptools MYSQLdb-python libpcap-dev tkinter tk-devel
+    yum -y install git mysql-server mysql-devel python-devel python-setuptools MySQL-python libpcap-devel tkinter tk-devel
 elif [ -f /etc/debian-version ] || [ -f /etc/lsb-release ]; then
     apt-get update
     apt-get -y install git farpd mysql-server libmysqlclient-dev python-mysqldb libpcap-dev python-tk

@@ -45,7 +45,7 @@ class Dispatcher(object):
         self.packet_queue = dict()
         self.entry_points = list()
         self.unreach_list = list()
-        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 50)
+        self.pcapy_object = pcapy.open_live(self.interface, 65535, 1, 10)
         self.decoder = ImpactDecoder.EthDecoder()
         self.ip_decoder = ImpactDecoder.IPDecoder()
         self.ip_icmp_decoder = ImpactDecoder.IPDecoderForICMP()
