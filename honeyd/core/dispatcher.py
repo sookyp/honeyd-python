@@ -209,6 +209,7 @@ class Dispatcher(object):
         return event
 
     def icmp_reply(self, eth_src, eth_dst, ip_src, ip_dst, i_type, i_code, ip_pkt):
+        # TODO: we have access to the personality here
         """Function creates and sends back an ICMP reply
         Args:
             eth_src : ethernet source address
@@ -218,6 +219,14 @@ class Dispatcher(object):
             i_type : type of the icmp reply
             i_code : code of the icmp reply
         """
+        # truncate inner packet
+        l = ip_pkt.get_ip_len()
+        hdr = None
+        if l > 1472: # (MTU) 1500 - (IPv4) 20 - (ICMP) 8 = 1472
+            hdr = ip_pkt.get_packet()[:1472]
+        else:
+            hdr = ip_pkt.get_packet()
+
         # icmp packet
         reply_icmp = ImpactPacket.ICMP()
         reply_icmp.set_icmp_type(i_type)
@@ -225,7 +234,7 @@ class Dispatcher(object):
         reply_icmp.set_icmp_id(0)
         reply_icmp.set_icmp_seq(0)
         reply_icmp.set_icmp_void(0)
-        reply_icmp.contains(ip_pkt)
+        reply_icmp.contains(ImpactPacket.Data(hdr))
         reply_icmp.calculate_checksum()
         reply_icmp.auto_checksum = 1
 
@@ -355,8 +364,10 @@ class Dispatcher(object):
             ts : timestamp for intercepted packet
             pkt : received packet
         """
-        reply_packet = None
+        if not len(pkt):
+            return
 
+        reply_packet = None
         # ethernet layer
         try:
             eth = self.decoder.decode(pkt)

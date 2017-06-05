@@ -76,7 +76,12 @@ class UDPHandler(object):
         inner_udp.set_uh_ulen(udp_packet.get_uh_ulen())
         inner_udp.set_uh_sum(udp_packet.get_uh_sum())
         inner_udp.auto_checksum = 0
-        data = udp_packet.get_packet()
+        l = packet.get_ip_len()
+        if l > 1472: # 1500 - 20 - 8 => outer IP and ICMP
+            # 1444 = 1500 - 20 - 8 - 20 - 8 => MTU - outer IP - ICMP - inner IP - UDP
+            data = udp_packet.get_packet()[:1444]
+        else:
+            data = udp_packet.get_packet()
         data = data[udp_packet.get_header_size():]  # same slice as [8:]
 
         # inner ip packet
@@ -247,7 +252,12 @@ class UDPHandler(object):
         reply_icmp.set_icmp_void(0)
         reply_icmp.set_icmp_id(0)
         reply_icmp.set_icmp_seq(0)
-        hdr = packet.get_packet()
+        hdr = None
+        l = packet.get_ip_len()
+        if l > 1472: # 1500 - 20 - 8 (MTU - IP - ICMP)
+            hdr = packet.get_packet()[:1472]
+        else:
+            hdr = packet.get_packet()
         reply_icmp.contains(ImpactPacket.Data(hdr))
         reply_icmp.calculate_checksum()
         reply_icmp.auto_checksum = 1
