@@ -381,10 +381,11 @@ class Builder(object):
             remote_ip = tunnels.keys()[i]
             remote_mode = tunnels.values()[i]
             name = 'tun' + str(tunnel_id)
+            host = '/'.join([str(hosts[i]), str(iface_ip.prefixlen)])
             subprocess.Popen(['ip', 'tunnel', 'add', name, 'mode', remote_mode, 'remote', str(
                 remote_ip), 'local', local_ip, 'ttl', '255'], stdout=subprocess.PIPE)
             subprocess.Popen(['ip', 'link', 'set', name, 'up'], stdout=subprocess.PIPE)
-            subprocess.Popen(['ip', 'addr', 'add', str(hosts[i]), 'dev', name], stdout=subprocess.PIPE)
+            subprocess.Popen(['ip', 'addr', 'add', host, 'dev', name], stdout=subprocess.PIPE)
             assignments.append((name, remote_ip, remote_mode))
 
         return assignments
